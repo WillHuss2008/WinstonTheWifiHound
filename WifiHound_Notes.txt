@@ -1,0 +1,2 @@
+consider using
+    cat air-01.csv | awk {'print $19'} | awk -F',' '{for(i=1; i<=NF; i++) if($i ~ /[A-Za-z0-9-]+/) print $i}' | grep -v 0 | grep -v IP

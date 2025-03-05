@@ -1,0 +1,3 @@
+[0m[?25l[2JError setting monitor mode on wlan0
+Can't reopen wlan0
+[?25h
