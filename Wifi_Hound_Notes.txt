@@ -1,2 +1,9 @@
 consider using
     cat air-01.csv | awk {'print $19'} | awk -F',' '{for(i=1; i<=NF; i++) if($i ~ /[A-Za-z0-9-]+/) print $i}' | grep -v 0 | grep -v IP
+
+NOTES
+
+-- The formatting of this program will be based off of terminal games, John the Ripper, and ufw.
+    -- The interaction part will be based off of terminal games especially for the intro to how it works, but the program will run off of the aircrack suite.
+    -- The program will store handshakes and passwords to networks including the bssid, essid, and when it was captured.
+    -- the program will run off of aircrack similar to how ufw runs off of iptables.
