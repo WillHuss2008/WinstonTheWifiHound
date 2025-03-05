@@ -101,6 +101,7 @@ echo "name: $FULLNAME
 username: $USERNAME" > $profile
 echo "password: $PASSWORD" >> $profile
 vim -X -c "let &key='$PASSWORD'" -c ":x" $profile
+echo "username: $USERNAME \npassword: $PASSWORD" > $config
 sleep 2s
 echo "
 WIFI HOUND: THANK YOU FOR SETTING UP WIFI HOUND.
