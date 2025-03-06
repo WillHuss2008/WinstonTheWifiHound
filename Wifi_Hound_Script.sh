@@ -1,7 +1,9 @@
 #!/bin/bash
 # start this at home
 # add password requirements later
-user=$(cat Wifi_Hound.conf | awk {'print $2'})
+
+winston=/winston
+user=$(cat $winston/user.profile | grep username | awk {'print $2'})
 
 echo "WIFI HOUND: LET'S BEGIN.
 "
@@ -20,8 +22,7 @@ fi
 names=$(sudo airmon-ng | awk '/phy/ {print $4, $5}')
 interfaces=$(sudo airmon-ng | awk '/phy/ {print $2}')
 lines=$(echo "$interfaces" | wc -l)
-sleep 2s
-echo "WIFI HOUND: HERE ARE YOUR INTERFACE OPTIONS. PLEASE PICK WIRELESS INTERFACE THAT YOU'D LIKE TO USE TO SCAN FOR NETWORKS
+echo "WINSTON: HERE ARE YOUR INTERFACE OPTIONS. PLEASE PICK WIRELESS INTERFACE THAT YOU'D LIKE TO USE TO SCAN FOR NETWORKS
 "
 for i in $(seq 1 $lines); do
     interface=$(echo "$interfaces" | sed -n ${i}p)
@@ -32,7 +33,8 @@ echo " "
 read -p "$user: " option
 interface=$(echo "$interfaces" | grep $option)
 sleep 2s
-echo "WIFI HOUND: SEARCHING FOR NETWORKS
+echo "
+WIFI HOUND: SEARCHING FOR NETWORKS
 "
-sudo airmon-ng start $interface
-sudo airodump-ng $interface --write airodump-ng --output-form csv
+
+sudo airodump-ng --write /winston/airodump-ng --output-format csv $interface
