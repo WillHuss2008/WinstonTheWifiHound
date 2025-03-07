@@ -68,14 +68,19 @@ echo "WINSTON: PLEASE WAIT WHILE WE SET UP YOUR WIFI HOUND
 user=$(whoami)
 wait
 if ! sudo ls "/winston" 2>/dev/null; then
-    sudo mkdir /winston
-    sudo chmod 700 /winston
-    sudo chown $user /winston
+    sudo mkdir /winston/
+    sudo chmod 700 /winston/
+    sudo chown $user /winston/
+fi
+if ! sudo ls "/winston/$USERNAME"; then
+    sudo mkdir /winston/$USERNAME/
+    sudo chmod 700 /winston/$USERNAME/
+    sudo chown $user /winston/$USERNAME/
 fi
 echo "username: $USERNAME
 full name: $FULLNAME
-password: $(echo $PASSWORD | sha256sum)" > /winston/user.profile
-sudo chmod 700 /winston/user.profile
-sudo chown $user /winston/user.profile
+password: $(echo -n $PASSWORD | sha256sum | awk {'print $1'})" > /winston/$USERNAME/user.profile
+sudo chmod 600 /winston/$USERNAME/user.profile
+sudo chown $user /winston/$USERNAME/user.profile
 clear
 exit 0
