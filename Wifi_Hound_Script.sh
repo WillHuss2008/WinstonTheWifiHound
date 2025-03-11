@@ -1,6 +1,7 @@
 #!/bin/bash
 # start this at home
 # add password requirements later
+sudo rm /winston/kenel/*
 
 while true; 
 do
@@ -59,13 +60,46 @@ if ! ls /winston/kenel; then
     sudo mkdir /winston/kenel
 fi
 
-sudo airodump-ng $interface -w /winston/kenel/$(echo $(date) | awk {'print $4'}) --write-interval 1 --output-format csv &>/dev/null &
+sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
 
 
 # latest work
-echo "would you like to stop?"
+echo "WINSTON: IS THERE A SPECIFIC NETWORK YOU'RE LOOKING FOR?
+"
 read -p "$username: " answer
 if [[ $answer = "yes" ]]; then
-    sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+')
+    echo "WINSTON: WHAT'S THE NETWORK NAME?
+    "
+    read -p "$username: " answer1
+    while true; do
+        if cat /winston/kenel/airodump-ng-01.csv | grep $answer1; then
+            sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
+            clear
+            echo "WINSTON: WE FOUND IT
+            "
+            break
+        fi
+    done
+else
+    sleep 10
+    sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
 fi
-exit 0
+search=/winston/kenel/airodump-ng-01.csv
+echo "WINSTON: HERE'S THE NETWORK INFORMATION.
+"
+name=$(cat $search | grep $answer1 | awk {'print $19'} | grep -oE '[A-Za-z0-9:-]+')
+SSID=$(cat $search | grep $answer1 | head -n 1 | awk {'print $1'} | grep -oE '[A-Za-z0-9:-]+')
+channel=$(cat $search | grep $answer1 | head -n 1 | awk {'print $6'} | grep -oE '[A-Za-z0-9:-]+')
+security=$(cat $search | grep $answer1 | head -n 1 | awk {'print $8'} | grep -oE '[A-Za-z0-9:-]+')
+echo "name: $name
+SSID: $SSID
+Channel: $channel
+Network Security: $security
+"
+if [[ $security = "WPA3" ]]; then
+    echo "WINSTON: I'M SORRY, THERE'S NOTHING I CAN DO ABOUT THIS ONE.
+    "
+    exit 0
+fi
+
+sudo airodump-ng -c $channel --bssid $SSID -w /winston/kenel/$name --write-interval 1 $interface &>/dev/null &
