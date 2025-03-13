@@ -91,6 +91,9 @@ name=$(cat $search | grep $answer1 | awk {'print $19'} | grep -oE '[A-Za-z0-9:-]
 SSID=$(cat $search | grep $answer1 | head -n 1 | awk {'print $1'} | grep -oE '[A-Za-z0-9:-]+')
 channel=$(cat $search | grep $answer1 | head -n 1 | awk {'print $6'} | grep -oE '[A-Za-z0-9:-]+')
 security=$(cat $search | grep $answer1 | head -n 1 | awk {'print $8'} | grep -oE '[A-Za-z0-9:-]+')
+if [[ $security = "not" ]]; then
+    security="not found"
+fi
 echo "name: $name
 SSID: $SSID
 Channel: $channel
@@ -102,4 +105,3 @@ if [[ $security = "WPA3" ]]; then
     exit 0
 fi
 
-sudo airodump-ng -c $channel --bssid $SSID -w /winston/kenel/$name --write-interval 1 $interface &>/dev/null &
