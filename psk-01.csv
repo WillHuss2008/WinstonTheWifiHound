@@ -1,6 +1,0 @@
-
-BSSID, First time seen, Last time seen, channel, Speed, Privacy, Cipher, Authentication, Power, # beacons, # IV, LAN IP, ID-length, ESSID, Key
-40:AE:30:6A:AA:02, 2025-03-18 09:14:38, 2025-03-18 09:16:03,  3, 360, WPA2, CCMP, PSK, -28,      136,        3,   0.  0.  0.  0,   9, CYB_Rogue, 
-
-Station MAC, First time seen, Last time seen, Power, # packets, BSSID, Probed ESSIDs
-
