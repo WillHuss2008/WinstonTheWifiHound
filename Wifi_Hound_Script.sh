@@ -93,8 +93,6 @@ elif [[ $answer = "no" ]]; then
         fi
         break
     done
-else
-    sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
 fi
 
 echo "WINSTON: HERE'S THE NETWORK INFORMATION.
@@ -118,4 +116,6 @@ if [[ $security = "WPA3" ]]; then
     "
     exit 0
 fi
+sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
+
 
