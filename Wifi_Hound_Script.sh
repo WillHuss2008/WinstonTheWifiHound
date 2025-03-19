@@ -87,11 +87,10 @@ elif [[ $answer = "no" ]]; then
         done
         echo "WINSTON: PLEASE PICK AN OPTION
         "
-        read -p "$username: " response
-        response1=$(($response))
-        if [[ $response1 -eq 1 && $response1 -lt $(($lines + 1)) ]]; then
-            name=$response
-            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $(cat $options | sed -n ${response1}p) | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
+        read -p "$username: " line
+        line=$(($line))
+        if [ $line -eq 1 && $line -lt $(($lines + 1)) ]; then
+            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $(cat $options | sed -n ${line}p) | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
             echo "$name"
             break
         elif [ $response1 -eq $(($lines + 1)) ]; then
@@ -108,9 +107,9 @@ echo "WINSTON: HERE'S THE NETWORK INFORMATION.
 "
 search=/winston/kenel/airodump-ng-01.csv
 name=$(cat $search | grep "$name" | awk {'print $19'} | grep -oE '[A-Za-z0-9:_-]+')
-SSID=$(cat $search | grep "$name" | head -n 1 | awk {'print $1'} | grep -oE '[A-Za-z0-9:_-]+')
-channel=$(cat $search | grep "$name" | head -n 1 | awk {'print $6'} | grep -oE '[A-Za-z0-9:_-]+')
-security=$(cat $search | grep "$name" | head -n 1 | awk {'print $8'} | grep -oE '[A-Za-z0-9:_-]+')
+SSID=$(cat $search | grep "$name" | awk {'print $1'} | grep -oE '[A-Za-z0-9:_-]+')
+channel=$(cat $search | grep "$name" | awk {'print $6'} | grep -oE '[A-Za-z0-9:_-]+')
+security=$(cat $search | grep "$name" | awk {'print $8'} | grep -oE '[A-Za-z0-9:_-]+')
 if [[ $security = "not" ]]; then
     security="not found"
 fi
@@ -136,7 +135,3 @@ cat /winston/kenel/psk-01.csv | grep -A 100 Station | awk {'print $1'} | grep -o
 
 #start here
 
-while true;
-do
-    cat /winston/kenel/psk-01.csv | grep handshake
-screen -dmS deauth ./deauth.sh

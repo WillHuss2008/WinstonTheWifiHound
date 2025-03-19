@@ -77,6 +77,12 @@ if ! sudo ls "/winston/$USERNAME"; then
     sudo chmod 700 /winston/$USERNAME/
     sudo chown $user /winston/$USERNAME/
 fi
+if ! sudo ls "/winston/kenel"; then
+    sudo mkdir /winston/kenel/
+    sudo chmod 700 /winston/kenel/
+    sudo chown $(whoami) /winston/kenel
+fi
+
 echo "username: $USERNAME
 full name: $FULLNAME
 password: $(echo -n $PASSWORD | sha256sum | awk {'print $1'})" > /winston/$USERNAME/user.profile
