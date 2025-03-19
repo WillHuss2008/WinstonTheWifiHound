@@ -1,8 +1,10 @@
 #!/bin/bash
 
-channel="$(cat /winston/kenel/network_settings | grep Channel | awk {'print $2'} | grep -oe '[A-Za-z0-9:_-]\+')"
-ssid="$(cat /winston/kenel/network_settings | grep SSID | awk {'print $2'} | grep -oe '[A-Za-z0-9:_-]\+')"
-interface="$(cat /winston/kenel/network_settings | grep interface | awk {'print $2'} | grep -oe '[A-Za-z0-9:_-]\+')"
-echo "$channel, $ssid, $interface"
+settings=/winston/kenel/network_settings
+kenel=/winston/kenel
 
-sudo airodump-ng -c $channel --bssid $ssid -w /winston/kenel/psk $interface & &>/dev/null
+channel=$(cat $settings | grep Channel | awk {'print $2'})
+interface=$(cat $settings | grep interface | awk {'print $2'})
+ssid=$(cat $settings | grep SSID | awk {'print $2'})
+
+sudo airodump-ng -c $channel --bssid $ssid -w $kenel/psk $interface
