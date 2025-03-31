@@ -111,13 +111,15 @@ screen -dmS deauth ./deauth.sh
 
 sleep 10s
 
-while true; do
-    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
-        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
-        screen kill $pid
-        echo "we got it"
-        break
-    else
-        continue
-    fi
-done
+#while true; do
+#    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
+#        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
+#        screen kill $pid
+#        echo "we got it"
+#        break
+#    else
+#        continue
+#    fi
+#done
+
+#begin solving problem with capture and deauth scripts
