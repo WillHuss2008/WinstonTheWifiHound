@@ -103,13 +103,15 @@ ssid: $bssid
 channel: $channel
 interface: $interface" > /winston/kenel/network_settings
 
-screen -dmS capture ./capture.sh
-
-cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-F0-9:]\+' > /winston/kenel/device_options
-
-screen -dmS deauth ./deauth.sh
+screen -dmS capture ./capture.sh &
 
 sleep 10s
+
+doptions=$(cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-Z0-9:]\+')
+
+echo "$doptions"
+
+echo "$dtoptions" > /winston/kenel/device_options
 
 #while true; do
 #    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
