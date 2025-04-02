@@ -98,30 +98,48 @@ essid=$(cat $dump | grep $name | head -n 1 | awk {'print $19'} | grep -oe '[A-Za
 bssid=$(cat $dump | grep $name | head -n 1 | awk {'print $1'} | grep -oe '[A-Z0-9_:]\+')
 channel=$(cat $dump | grep $name | head -n 1 | awk {'print $6'} | grep -oe '[0-9]\+')
 
+pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
+sudo kill -9 $pid &>/dev/null
+clear
+
 echo "name: $essid
 ssid: $bssid
 channel: $channel
 interface: $interface" > /winston/kenel/network_settings
 
-screen -dmS capture ./capture.sh &
+if ! screen -ls | grep capture 2>/dev/null; then
+    screen -dmS capture ./capture.sh &
+elif screen -ls | grep capture 2>/dev/null; then
+    screen kill $(screen -ls | grep capture | awk {'print $1'} | grep -oe '[0-9]\+') &>/dev/null
+    clear
+fi
 
-sleep 10s
+echo "WINSTON: PLEASE WAIT WHILE WE PREPARE TO BULLY SOME DEVICES.
+"
 
-doptions=$(cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-Z0-9:]\+')
+while true; do
+    sleep 5s
+    if ! cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-F0-9:]\+'; then
+        clear
+        echo "WINSTON: PLEASE WAIT
+        "
+    elif cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[0-9aA-F:]\+'; then
+        doptions=$(cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-Z0-9:]\+')
+        echo "$doptions"
+        echo "$dtoptions" > /winston/kenel/device_options
+        break
+    fi
+done
 
-echo "$doptions"
-
-echo "$dtoptions" > /winston/kenel/device_options
-
-#while true; do
-#    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
-#        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
-#        screen kill $pid
-#        echo "we got it"
-#        break
-#    else
-#        continue
-#    fi
-#done
+while true; do
+    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
+        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
+        screen kill $pid
+        echo "we got it"
+        break
+    else
+        continue
+    fi
+done
 
 #begin solving problem with capture and deauth scripts
