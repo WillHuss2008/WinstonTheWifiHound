@@ -1,128 +1,220 @@
 #!/bin/bash
-clear
+# Winston The Wifi Hound - Setup Script
 
-echo "WINSTON: HELLO."
-echo "WINSTON: MY NAME IS WINSTON, THE WIFI HOUND."
-echo "WINSTON: THIS IS THE SET-UP SCRIPT, SO WE'RE GOING TO SET UP YOUR PASSWORD, USERNAME, AND OTHER THINGS THAT'LL MAKE YOUR EXPERIENCE EASIER."
-echo "WINSTON: LET'S START WITH THE BASICS."
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+BOLD='\033[1m'
 
-# Check for required tools
-echo "WINSTON: CHECKING FOR REQUIRED TOOLS..."
-required_tools=("aircrack-ng" "screen" "iwconfig")
-missing_tools=()
-
-for tool in "${required_tools[@]}"; do
-    if ! command -v $tool &> /dev/null; then
-        missing_tools+=("$tool")
-    fi
-done
-
-if [ ${#missing_tools[@]} -ne 0 ]; then
-    echo "WINSTON: SOME REQUIRED TOOLS ARE MISSING:"
-    for tool in "${missing_tools[@]}"; do
-        echo "- $tool"
-    done
-    echo "WINSTON: PLEASE INSTALL THE MISSING TOOLS AND RUN THIS SCRIPT AGAIN."
-    exit 1
-fi
-
-# User setup
-while true; do
-    echo "WINSTON: WHAT'S YOUR FULL NAME?"
-    read -p "YOUR NAME: " FULLNAME
-    echo "WIFI HOUND: YOUR NAME IS $FULLNAME. CORRECT?"
-    read -p "YOU: " answer
-    if [[ $answer = "yes" ]]; then
-       break 
-    elif ! [[ $answer = "yes" && $answer = "no" ]]; then
-        clear
-        echo "WINSTON: I'M SORRY, I COULDN'T UNDERSTAND. PLEASE TRY AGAIN."
-    fi
-done
-
-clear
-while true; do
-    echo "WINSTON: WHAT WOULD YOU LIKE YOUR USERNAME TO BE?"
-    read -p "YOUR USERNAME: " USERNAME
-    echo "WINSTON: YOUR USERNAME IS $USERNAME. CORRECT?"
-    read -p "YOU: " answer
-    if [[ $answer = "yes" ]]; then
-        break
-    elif ! [[ $answer = "yes" && $answer = "no" ]]; then
-        clear
-        echo "WINSTON: I'M SORRY, I COULDN'T UNDERSTAND. PLEASE TRY AGAIN."
-    fi
-done
-
-clear
-while true; do
-    echo "WINSTON: PLEASE ENTER THE PASSWORD YOU WOULD LIKE TO USE"
-    read -sp "YOUR PASSWORD: " PASSWORD
-    echo "WINSTON: PLEASE ENTER IT AGAIN TO DOUBLE CHECK IT."
-    read -sp "YOUR PASSWORD: " PASSWORD1
-    if [[ $PASSWORD = $PASSWORD1 ]]; then
-        break
+# Function to print messages with appropriate verbosity
+winston_say() {
+    local level=$1
+    local message=$2
+    local color=$3
+    
+    if [ -z "$color" ]; then
+        echo -e "WINSTON: $message"
     else
-        clear
-        echo "WINSTON: YOUR PASSWORDS DON'T MATCH. PLEASE TRY AGAIN."
+        echo -e "${color}WINSTON: $message${NC}"
     fi
-done
+}
 
-clear
-echo "WINSTON: PLEASE WAIT WHILE WE SET UP YOUR WIFI HOUND"
+# Function to check if running as root
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        winston_say 1 "PLEASE RUN THIS SCRIPT AS ROOT" $RED
+        winston_say 1 "USE: sudo ./Wifi_Hound_Setup.sh" $YELLOW
+        exit 1
+    fi
+}
 
-# Create necessary directories and set permissions
-user=$(whoami)
-if ! sudo ls "/winston" 2>/dev/null; then
-    sudo mkdir /winston/
-    sudo chmod 700 /winston/
-    sudo chown $user /winston/
-fi
+# Function to check dependencies
+check_dependencies() {
+    winston_say 1 "CHECKING DEPENDENCIES..." $BLUE
+    
+    local missing_deps=()
+    
+    # Check for aircrack-ng
+    if ! command -v aircrack-ng &> /dev/null; then
+        missing_deps+=("aircrack-ng")
+    fi
+    
+    # Check for screen
+    if ! command -v screen &> /dev/null; then
+        missing_deps+=("screen")
+    fi
+    
+    # Check for iwconfig
+    if ! command -v iwconfig &> /dev/null; then
+        missing_deps+=("wireless-tools")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        winston_say 1 "MISSING DEPENDENCIES:" $RED
+        for dep in "${missing_deps[@]}"; do
+            echo "- $dep"
+        done
+        winston_say 1 "INSTALLING MISSING DEPENDENCIES..." $YELLOW
+        apt-get update
+        apt-get install -y "${missing_deps[@]}"
+    else
+        winston_say 1 "ALL DEPENDENCIES FOUND" $GREEN
+    fi
+}
 
-if ! sudo ls "/winston/$USERNAME"; then
-    sudo mkdir /winston/$USERNAME/
-    sudo chmod 700 /winston/$USERNAME/
-    sudo chown $user /winston/$USERNAME/
-fi
+# Function to create user account
+create_user() {
+    winston_say 1 "CREATING USER ACCOUNT..." $BLUE
+    
+    read -p "Enter username: " username
+    read -sp "Enter password: " password
+    echo ""
+    
+    # Create user directory
+    mkdir -p /winston/$username
+    
+    # Create user profile
+    echo "username: $username" > /winston/$username/user.profile
+    echo "password: $(echo -n "$password" | sha256sum | awk {'print $1'})" >> /winston/$username/user.profile
+    
+    winston_say 1 "USER ACCOUNT CREATED" $GREEN
+}
 
-if ! sudo ls "/winston/kenel"; then
-    sudo mkdir /winston/kenel/
-    sudo chmod 700 /winston/kenel/
-    sudo chown $user /winston/kenel
-fi
+# Function to set up directories
+setup_directories() {
+    winston_say 1 "SETTING UP DIRECTORIES..." $BLUE
+    
+    # Create main directories
+    mkdir -p /winston/kenel
+    mkdir -p /winston/kenel/handshakes
+    
+    # Set permissions
+    chmod -R 700 /winston
+    
+    winston_say 1 "DIRECTORIES CREATED" $GREEN
+}
 
-# Create user profile
-echo "username: $USERNAME
-full name: $FULLNAME
-password: $(echo -n $PASSWORD | sha256sum | awk {'print $1'})" > /winston/$USERNAME/user.profile
-sudo chmod 600 /winston/$USERNAME/user.profile
-sudo chown $user /winston/$USERNAME/user.profile
-
-# Create default wordlist if it doesn't exist
-if [ ! -f "/winston/kenel/wordlist.txt" ]; then
-    echo "WINSTON: CREATING DEFAULT WORDLIST..."
-    # Add some common passwords to the wordlist
-    echo "password
-123456
+# Function to create default wordlist
+create_wordlist() {
+    winston_say 1 "CREATING DEFAULT WORDLIST..." $BLUE
+    
+    # Create a basic wordlist
+    cat > /winston/kenel/wordlist.txt << EOL
+password
+12345678
+qwerty
 admin
 welcome
-qwerty" > /winston/kenel/wordlist.txt
-    sudo chmod 600 /winston/kenel/wordlist.txt
-    sudo chown $user /winston/kenel/wordlist.txt
-fi
+EOL
+    
+    winston_say 1 "DEFAULT WORDLIST CREATED" $GREEN
+}
 
-# Make scripts executable
-chmod +x Wifi_Hound_Script.sh
-chmod +x password_manager.sh
-chmod +x capture.sh
-chmod +x deauth.sh
+# Function to add winston command
+add_winston_command() {
+    winston_say 1 "ADDING WINSTON COMMAND..." $BLUE
+    
+    # Get the absolute path of the script
+    script_path=$(realpath "$(dirname "$0")/Wifi_Hound_Script.sh")
+    
+    # Add alias to .bashrc
+    echo "" >> ~/.bashrc
+    echo "# Winston The Wifi Hound command" >> ~/.bashrc
+    echo "alias winston='sudo $script_path'" >> ~/.bashrc
+    
+    winston_say 1 "WINSTON COMMAND ADDED" $GREEN
+    winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY CHANGES" $YELLOW
+}
 
-clear
-echo "WINSTON: SETUP COMPLETE!"
-echo "WINSTON: TO START USING WIFI HOUND, RUN: ./Wifi_Hound_Script.sh"
-echo "WINSTON: AVAILABLE COMMANDS:"
-echo "- ./Wifi_Hound_Script.sh : Start the main program"
-echo "- ./password_manager.sh list : View stored passwords"
-echo "- ./password_manager.sh search <term> : Search for specific networks"
-echo "WINSTON: REMEMBER TO RUN THESE COMMANDS WITH SUDO PRIVILEGES!"
-exit 0
+# Function to set up permissions
+setup_permissions() {
+    winston_say 1 "SETTING UP PERMISSIONS..." $BLUE
+    
+    # Make scripts executable
+    chmod +x "$(dirname "$0")"/*.sh
+    
+    # Set ownership
+    chown -R $SUDO_USER:$SUDO_USER /winston
+    
+    winston_say 1 "PERMISSIONS SET" $GREEN
+}
+
+# Function to show example usage
+show_example_usage() {
+    winston_say 1 "EXAMPLE USAGE:" $MAGENTA
+    echo "------------------------"
+    winston_say 1 "1. START WINSTON:" $BLUE
+    echo "   $ winston"
+    echo ""
+    winston_say 1 "2. LOGIN WITH YOUR CREDENTIALS:" $BLUE
+    echo "   Username: $username"
+    echo "   Password: [your password]"
+    echo ""
+    winston_say 1 "3. BASIC COMMANDS:" $BLUE
+    echo "   - help                    : Show available commands"
+    echo "   - interfaces              : List wireless interfaces"
+    echo "   - monitor wlan0           : Set interface to monitor mode"
+    echo "   - scan all                : Scan for all networks"
+    echo "   - capture HomeNetwork     : Start capturing packets"
+    echo "   - deauth HomeNetwork      : Start deauthentication attack"
+    echo "   - handshakes              : List captured handshakes"
+    echo "   - crack handshake.cap     : Attempt to crack a handshake"
+    echo "   - status                  : Show current status"
+    echo "   - verbose 2               : Set verbosity level"
+    echo "   - docs                    : Show documentation"
+    echo "   - exit                    : Exit the program"
+    echo ""
+    winston_say 1 "4. EXAMPLE WORKFLOW:" $BLUE
+    echo "   $ winston"
+    echo "   winston> interfaces"
+    echo "   winston> monitor wlan0"
+    echo "   winston> scan all"
+    echo "   winston> capture HomeNetwork"
+    echo "   winston> deauth HomeNetwork"
+    echo "   winston> handshakes"
+    echo "   winston> crack handshake.cap"
+    echo ""
+    winston_say 1 "5. GETTING HELP:" $BLUE
+    echo "   - Type 'help' for command list"
+    echo "   - Type 'help <command>' for specific help"
+    echo "   - Type 'docs' for detailed documentation"
+    echo "------------------------"
+}
+
+# Main setup process
+winston_say 1 "STARTING WINSTON SETUP" $MAGENTA
+echo "------------------------"
+
+# Check if running as root
+check_root
+
+# Check and install dependencies
+check_dependencies
+
+# Create user account
+create_user
+
+# Set up directories
+setup_directories
+
+# Create default wordlist
+create_wordlist
+
+# Set up permissions
+setup_permissions
+
+# Add winston command
+add_winston_command
+
+echo "------------------------"
+winston_say 1 "SETUP COMPLETE!" $GREEN
+winston_say 1 "YOU CAN NOW USE THE 'winston' COMMAND TO START THE PROGRAM" $YELLOW
+winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY THE NEW COMMAND" $YELLOW
+
+# Show example usage
+show_example_usage
