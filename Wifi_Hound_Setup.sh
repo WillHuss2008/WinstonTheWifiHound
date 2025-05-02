@@ -188,11 +188,50 @@ manage_wordlists() {
         "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt" \
         "COMMON PASSWORDS WORDLIST"
     
-    # Create a custom wordlist from all downloaded wordlists
-    winston_say 1 "CREATING COMBINED WORDLIST..." $BLUE
-    cat /winston/kenel/wordlists/*.txt 2>/dev/null | sort -u > /winston/kenel/combined_wordlist.txt
-    chmod 600 /winston/kenel/combined_wordlist.txt
-    chown $SUDO_USER:$SUDO_USER /winston/kenel/combined_wordlist.txt
+    # Let user choose default wordlist
+    winston_say 1 "CHOOSE YOUR DEFAULT WORDLIST:" $MAGENTA
+    echo "1) rockyou.txt (14 million passwords)"
+    echo "2) darkc0de.lst (1.5 million passwords)"
+    echo "3) common-passwords.txt (1 million most common passwords)"
+    echo "4) Use custom wordlist"
+    
+    while true; do
+        read -p "Enter your choice (1-4): " choice
+        case $choice in
+            1)
+                cp "/winston/kenel/wordlists/rockyou.txt" "/winston/kenel/wordlist.txt"
+                winston_say 1 "SET ROCKYOU.TXT AS DEFAULT WORDLIST" $GREEN
+                break
+                ;;
+            2)
+                cp "/winston/kenel/wordlists/darkc0de.lst" "/winston/kenel/wordlist.txt"
+                winston_say 1 "SET DARKC0DE.LST AS DEFAULT WORDLIST" $GREEN
+                break
+                ;;
+            3)
+                cp "/winston/kenel/wordlists/common-passwords.txt" "/winston/kenel/wordlist.txt"
+                winston_say 1 "SET COMMON-PASSWORDS.TXT AS DEFAULT WORDLIST" $GREEN
+                break
+                ;;
+            4)
+                read -p "Enter path to your custom wordlist: " custom_wordlist
+                if [ -f "$custom_wordlist" ]; then
+                    cp "$custom_wordlist" "/winston/kenel/wordlist.txt"
+                    winston_say 1 "SET CUSTOM WORDLIST AS DEFAULT" $GREEN
+                    break
+                else
+                    winston_say 1 "FILE NOT FOUND. PLEASE TRY AGAIN." $RED
+                fi
+                ;;
+            *)
+                winston_say 1 "INVALID CHOICE. PLEASE TRY AGAIN." $RED
+                ;;
+        esac
+    done
+    
+    # Set permissions for default wordlist
+    chmod 600 "/winston/kenel/wordlist.txt"
+    chown $SUDO_USER:$SUDO_USER "/winston/kenel/wordlist.txt"
     
     # Create a function to update wordlists
     cat > /winston/scripts/update_wordlists.sh << 'EOL'
@@ -223,18 +262,65 @@ update_wordlists() {
         mv common-passwords.txt.new common-passwords.txt
     fi
     
-    # Recreate combined wordlist
-    cat *.txt 2>/dev/null | sort -u > ../combined_wordlist.txt
-    
     echo "Wordlists updated successfully!"
+    echo "To change your default wordlist, run: /winston/scripts/change_wordlist.sh"
 }
+
+# Function to change default wordlist
+change_wordlist() {
+    echo "Available wordlists:"
+    echo "1) rockyou.txt (14 million passwords)"
+    echo "2) darkc0de.lst (1.5 million passwords)"
+    echo "3) common-passwords.txt (1 million most common passwords)"
+    echo "4) Use custom wordlist"
+    
+    read -p "Enter your choice (1-4): " choice
+    case $choice in
+        1)
+            cp "/winston/kenel/wordlists/rockyou.txt" "/winston/kenel/wordlist.txt"
+            echo "Set rockyou.txt as default wordlist"
+            ;;
+        2)
+            cp "/winston/kenel/wordlists/darkc0de.lst" "/winston/kenel/wordlist.txt"
+            echo "Set darkc0de.lst as default wordlist"
+            ;;
+        3)
+            cp "/winston/kenel/wordlists/common-passwords.txt" "/winston/kenel/wordlist.txt"
+            echo "Set common-passwords.txt as default wordlist"
+            ;;
+        4)
+            read -p "Enter path to your custom wordlist: " custom_wordlist
+            if [ -f "$custom_wordlist" ]; then
+                cp "$custom_wordlist" "/winston/kenel/wordlist.txt"
+                echo "Set custom wordlist as default"
+            else
+                echo "File not found. Please try again."
+                exit 1
+            fi
+            ;;
+        *)
+            echo "Invalid choice. Please try again."
+            exit 1
+            ;;
+    esac
+    
+    chmod 600 "/winston/kenel/wordlist.txt"
+    chown $SUDO_USER:$SUDO_USER "/winston/kenel/wordlist.txt"
+    echo "Default wordlist changed successfully!"
+}
+
+# Create change_wordlist script
+cat > /winston/scripts/change_wordlist.sh << 'EOL'
+#!/bin/bash
+change_wordlist
 EOL
-    
-    chmod +x /winston/scripts/update_wordlists.sh
-    chown $SUDO_USER:$SUDO_USER /winston/scripts/update_wordlists.sh
-    
-    winston_say 1 "WORDLISTS SETUP COMPLETE" $GREEN
-    winston_say 1 "TO UPDATE WORDLISTS, RUN: /winston/scripts/update_wordlists.sh" $YELLOW
+
+chmod +x /winston/scripts/change_wordlist.sh
+chown $SUDO_USER:$SUDO_USER /winston/scripts/change_wordlist.sh
+
+winston_say 1 "WORDLISTS SETUP COMPLETE" $GREEN
+winston_say 1 "TO UPDATE WORDLISTS, RUN: /winston/scripts/update_wordlists.sh" $YELLOW
+winston_say 1 "TO CHANGE DEFAULT WORDLIST, RUN: /winston/scripts/change_wordlist.sh" $YELLOW
 }
 
 # Function to move scripts to secure location
