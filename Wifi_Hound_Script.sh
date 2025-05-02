@@ -141,16 +141,30 @@ check_session_timeout() {
 
 # Function to handle command history navigation
 setup_history_navigation() {
-    # Enable arrow key navigation
-    bind '"\e[A": history-search-backward'
-    bind '"\e[B": history-search-forward'
-    
-    # Enable tab completion
-    bind 'set show-all-if-ambiguous on'
-    bind 'set completion-ignore-case on'
-    
-    # Enable history expansion
-    bind 'set history-expand-line on'
+    # Check if readline is available
+    if [ -t 1 ]; then
+        # Enable readline if we're in an interactive shell
+        if [ -z "$BASH" ]; then
+            # If not in bash, try to use readline
+            if command -v rlwrap >/dev/null 2>&1; then
+                exec rlwrap -a -c -f ~/.winston_completion "$0" "$@"
+            fi
+        else
+            # In bash, enable readline features
+            if [[ $- == *i* ]]; then
+                # Only set these if we're in an interactive shell
+                bind 'set show-all-if-ambiguous on'
+                bind 'set completion-ignore-case on'
+                bind 'set history-expand-line off'  # Changed from on to off to fix the error
+                
+                # Enable arrow key navigation if available
+                if [[ -t 1 ]]; then
+                    bind '"\e[A": history-search-backward' 2>/dev/null || true
+                    bind '"\e[B": history-search-forward' 2>/dev/null || true
+                fi
+            fi
+        fi
+    fi
 }
 
 # Function to handle network scanning
@@ -735,7 +749,7 @@ while true; do
     fi
 done
 
-# Setup history navigation
+# Setup history navigation after successful login
 setup_history_navigation
 
 # Create necessary directories
@@ -752,8 +766,13 @@ while true; do
     # Update session timestamp
     date +%s > "/tmp/winston_session_start"
     
+    # Use read -e to enable readline features
     echo -ne "${BOLD}winston> ${NC}"
-    read -e cmd args
+    if ! read -e cmd args; then
+        # Handle EOF (Ctrl+D)
+        echo
+        cleanup_and_exit
+    fi
     
     # Log command
     log_event "DEBUG" "Command executed: $cmd $args"
