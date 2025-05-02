@@ -1,6 +1,13 @@
 #!/bin/bash
 # Winston The Wifi Hound - Interactive Terminal Interface
 
+# Standard paths
+SCRIPTS_DIR="/winston/scripts"
+KENEL_DIR="/winston/kenel"
+WORDLIST_DIR="$KENEL_DIR/wordlists"
+HANDSHAKE_DIR="$KENEL_DIR/handshakes"
+LOG_DIR="$KENEL_DIR/logs"
+
 # Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -14,8 +21,8 @@ BOLD='\033[1m'
 # Security settings
 MAX_LOGIN_ATTEMPTS=3
 SESSION_TIMEOUT=3600  # 1 hour
-ENCRYPTION_KEY_FILE="/winston/kenel/.encryption_key"
-LOG_FILE="/winston/kenel/winston.log"
+ENCRYPTION_KEY_FILE="$KENEL_DIR/.encryption_key"
+LOG_FILE="$LOG_DIR/winston.log"
 
 # Verbosity levels
 VERBOSITY_QUIET=0
@@ -41,6 +48,13 @@ declare -a WINSTON_COMMANDS=(
     "handshakes" "crack" "wordlist" "status" "history" "verbose" 
     "clear" "exit" "docs" "stop"
 )
+
+# Initialize variables
+interface=""
+current_network=""
+scan_running=false
+capture_running=false
+deauth_running=false
 
 # Function to get available interfaces
 get_interfaces() {
@@ -450,6 +464,7 @@ set_monitor_mode() {
     if sudo airmon-ng start "$interface" &>/dev/null; then
         echo -e "${GREEN}Successfully enabled monitor mode on $interface${NC}"
         log_event "INFO" "Enabled monitor mode on $interface"
+        return 0
     else
         handle_error "Failed to enable monitor mode on $interface"
         return 1
@@ -480,6 +495,7 @@ set_managed_mode() {
     if sudo airmon-ng stop "$interface" &>/dev/null; then
         echo -e "${GREEN}Successfully enabled managed mode on $interface${NC}"
         log_event "INFO" "Enabled managed mode on $interface"
+        return 0
     else
         handle_error "Failed to enable managed mode on $interface"
         return 1
@@ -905,41 +921,11 @@ while true; do
     # Update session timestamp
     date +%s > "/tmp/winston_session_start"
     
-    # Use read -e to enable readline features
-    echo -ne "${BOLD}winston> ${NC}"
-    
-    # Read command with timeout to check for arrow keys
-    if ! read -e -t 0.1 cmd args; then
-        # Check for arrow keys
-        read -sn 1 key
-        if [ "$key" = $'\x1b' ]; then
-            read -sn 1 key
-            if [ "$key" = "[" ]; then
-                read -sn 1 key
-                case "$key" in
-                    "A") # Up arrow
-                        if [ $WINSTON_HISTORY_INDEX -gt 0 ]; then
-                            WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX - 1))
-                            cmd="${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
-                            echo -ne "\r\033[K${BOLD}winston> ${NC}$cmd"
-                        fi
-                        ;;
-                    "B") # Down arrow
-                        if [ $WINSTON_HISTORY_INDEX -lt ${#WINSTON_HISTORY[@]} ]; then
-                            WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX + 1))
-                            if [ $WINSTON_HISTORY_INDEX -eq ${#WINSTON_HISTORY[@]} ]; then
-                                cmd=""
-                                echo -ne "\r\033[K${BOLD}winston> ${NC}"
-                            else
-                                cmd="${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
-                                echo -ne "\r\033[K${BOLD}winston> ${NC}$cmd"
-                            fi
-                        fi
-                        ;;
-                esac
-            fi
-        fi
-        continue
+    # Read command with readline support
+    if ! read -e -p "${BOLD}winston> ${NC}" cmd args; then
+        # Handle EOF (Ctrl+D)
+        echo
+        cleanup_and_exit
     fi
     
     # Skip empty commands
@@ -969,6 +955,10 @@ while true; do
             show_docs $args
             ;;
         "scan")
+            if [ -z "$interface" ]; then
+                handle_error "No interface selected. Use 'interfaces' to list available interfaces and 'monitor <interface>' to select one."
+                continue
+            fi
             if [ "$args" = "all" ]; then
                 scan_networks "$interface" "range" ""
             elif [ ! -z "$args" ]; then
@@ -981,22 +971,42 @@ while true; do
             list_interfaces
             ;;
         "monitor")
-            set_monitor_mode $args
+            if [ -z "$args" ]; then
+                handle_error "PLEASE SPECIFY AN INTERFACE"
+                continue
+            fi
+            if set_monitor_mode "$args"; then
+                interface="$args"
+            fi
             ;;
         "managed")
-            set_managed_mode $args
+            if [ -z "$args" ]; then
+                handle_error "PLEASE SPECIFY AN INTERFACE"
+                continue
+            fi
+            if set_managed_mode "$args"; then
+                interface=""
+            fi
             ;;
         "capture")
+            if [ -z "$interface" ]; then
+                handle_error "No interface selected. Use 'interfaces' to list available interfaces and 'monitor <interface>' to select one."
+                continue
+            fi
             if [ ! -z "$args" ]; then
-                echo "name: $args" > /winston/kenel/network_settings
+                echo "name: $args" > "$KENEL_DIR/network_settings"
                 start_capture_screen
             else
                 handle_error "USAGE: capture <network>"
             fi
             ;;
         "deauth")
+            if [ -z "$interface" ]; then
+                handle_error "No interface selected. Use 'interfaces' to list available interfaces and 'monitor <interface>' to select one."
+                continue
+            fi
             if [ ! -z "$args" ]; then
-                echo "name: $args" > /winston/kenel/network_settings
+                echo "name: $args" > "$KENEL_DIR/network_settings"
                 start_deauth_screen
             else
                 handle_error "USAGE: deauth <network>"
