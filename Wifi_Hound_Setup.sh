@@ -115,40 +115,39 @@ EOL
     winston_say 1 "DEFAULT WORDLIST CREATED" $GREEN
 }
 
-# Function to add winston command
-add_winston_command() {
-    winston_say 1 "ADDING WINSTON COMMAND..." $BLUE
+# Function to move scripts to secure location
+move_scripts() {
+    winston_say 1 "MOVING SCRIPTS TO SECURE LOCATION..." $BLUE
     
-    # Get the absolute path of the script
-    script_path=$(realpath "$(dirname "$0")/Wifi_Hound_Script.sh")
+    # Create scripts directory in /winston
+    mkdir -p /winston/scripts
     
-    # Check if .bashrc exists
-    if [ ! -f ~/.bashrc ]; then
-        winston_say 1 "CREATING .bashrc FILE..." $YELLOW
-        touch ~/.bashrc
+    # Move all .sh files to /winston/scripts
+    cp "$(dirname "$0")"/*.sh /winston/scripts/
+    
+    # Set proper permissions
+    chmod 700 /winston/scripts/*.sh
+    chown -R $SUDO_USER:$SUDO_USER /winston/scripts
+    
+    winston_say 1 "SCRIPTS MOVED TO /winston/scripts" $GREEN
+}
+
+# Function to clean up repository
+cleanup_repository() {
+    winston_say 1 "CLEANING UP REPOSITORY..." $BLUE
+    
+    # Get the repository directory
+    repo_dir=$(dirname "$(realpath "$0")")
+    
+    # Remove all .sh files from repository
+    rm -f "$repo_dir"/*.sh
+    
+    # Remove .git directory if it exists
+    if [ -d "$repo_dir/.git" ]; then
+        rm -rf "$repo_dir/.git"
     fi
     
-    # Check if alias already exists
-    if grep -q "alias winston=" ~/.bashrc; then
-        winston_say 1 "UPDATING EXISTING WINSTON ALIAS..." $YELLOW
-        # Remove existing alias
-        sed -i '/alias winston=/d' ~/.bashrc
-    fi
-    
-    # Add alias to .bashrc
-    echo "" >> ~/.bashrc
-    echo "# Winston The Wifi Hound command" >> ~/.bashrc
-    echo "alias winston='sudo $script_path'" >> ~/.bashrc
-    
-    # Verify the alias was added
-    if grep -q "alias winston=" ~/.bashrc; then
-        winston_say 1 "WINSTON COMMAND ADDED SUCCESSFULLY" $GREEN
-        winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY CHANGES" $YELLOW
-    else
-        winston_say 1 "ERROR: FAILED TO ADD WINSTON COMMAND" $RED
-        winston_say 1 "PLEASE MANUALLY ADD THE FOLLOWING LINE TO YOUR ~/.bashrc:" $YELLOW
-        echo "alias winston='sudo $script_path'"
-    fi
+    winston_say 1 "REPOSITORY CLEANED" $GREEN
 }
 
 # Function to set up permissions
@@ -225,11 +224,17 @@ setup_directories
 # Create default wordlist
 create_wordlist
 
+# Move scripts to secure location
+move_scripts
+
 # Set up permissions
 setup_permissions
 
 # Add winston command
 add_winston_command
+
+# Clean up repository
+cleanup_repository
 
 echo "------------------------"
 winston_say 1 "SETUP COMPLETE!" $GREEN
