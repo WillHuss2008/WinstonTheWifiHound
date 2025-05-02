@@ -122,32 +122,17 @@ move_scripts() {
     # Create scripts directory in /winston
     mkdir -p /winston/scripts
     
-    # Move all .sh files to /winston/scripts
-    cp "$(dirname "$0")"/*.sh /winston/scripts/
+    # Get current directory
+    current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Copy all .sh files to /winston/scripts
+    cp "$current_dir"/*.sh /winston/scripts/
     
     # Set proper permissions
     chmod 700 /winston/scripts/*.sh
     chown -R $SUDO_USER:$SUDO_USER /winston/scripts
     
     winston_say 1 "SCRIPTS MOVED TO /winston/scripts" $GREEN
-}
-
-# Function to clean up repository
-cleanup_repository() {
-    winston_say 1 "CLEANING UP REPOSITORY..." $BLUE
-    
-    # Get the repository directory
-    repo_dir=$(dirname "$(realpath "$0")")
-    
-    # Remove all .sh files from repository
-    rm -f "$repo_dir"/*.sh
-    
-    # Remove .git directory if it exists
-    if [ -d "$repo_dir/.git" ]; then
-        rm -rf "$repo_dir/.git"
-    fi
-    
-    winston_say 1 "REPOSITORY CLEANED" $GREEN
 }
 
 # Function to set up permissions
@@ -161,6 +146,72 @@ setup_permissions() {
     chown -R $SUDO_USER:$SUDO_USER /winston
     
     winston_say 1 "PERMISSIONS SET" $GREEN
+}
+
+# Function to add winston command
+add_winston_command() {
+    winston_say 1 "ADDING WINSTON COMMAND..." $BLUE
+    
+    # Get the absolute path of the script in its new location
+    script_path="/winston/scripts/Wifi_Hound_Script.sh"
+    
+    # Get the user's home directory
+    user_home=$(eval echo ~$SUDO_USER)
+    
+    # Check if .bashrc exists
+    if [ ! -f "$user_home/.bashrc" ]; then
+        winston_say 1 "CREATING .bashrc FILE..." $YELLOW
+        touch "$user_home/.bashrc"
+        chown $SUDO_USER:$SUDO_USER "$user_home/.bashrc"
+    fi
+    
+    # Check if alias already exists
+    if grep -q "alias winston=" "$user_home/.bashrc"; then
+        winston_say 1 "UPDATING EXISTING WINSTON ALIAS..." $YELLOW
+        # Remove existing alias
+        sed -i '/alias winston=/d' "$user_home/.bashrc"
+    fi
+    
+    # Add alias to .bashrc
+    echo "" >> "$user_home/.bashrc"
+    echo "# Winston The Wifi Hound command" >> "$user_home/.bashrc"
+    echo "alias winston='sudo $script_path'" >> "$user_home/.bashrc"
+    
+    # Set proper ownership
+    chown $SUDO_USER:$SUDO_USER "$user_home/.bashrc"
+    
+    # Verify the alias was added
+    if grep -q "alias winston=" "$user_home/.bashrc"; then
+        winston_say 1 "WINSTON COMMAND ADDED SUCCESSFULLY" $GREEN
+        winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY CHANGES" $YELLOW
+    else
+        winston_say 1 "ERROR: FAILED TO ADD WINSTON COMMAND" $RED
+        winston_say 1 "PLEASE MANUALLY ADD THE FOLLOWING LINE TO YOUR ~/.bashrc:" $YELLOW
+        echo "alias winston='sudo $script_path'"
+    fi
+}
+
+# Function to clean up repository
+cleanup_repository() {
+    winston_say 1 "CLEANING UP REPOSITORY..." $BLUE
+    
+    # Get current directory
+    current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    # Remove all .sh files from repository
+    rm -f "$current_dir"/*.sh
+    
+    # Remove .git directory if it exists
+    if [ -d "$current_dir/.git" ]; then
+        rm -rf "$current_dir/.git"
+    fi
+    
+    # Remove the directory itself if it's empty
+    if [ -z "$(ls -A $current_dir)" ]; then
+        rmdir "$current_dir"
+    fi
+    
+    winston_say 1 "REPOSITORY CLEANED" $GREEN
 }
 
 # Function to show example usage
