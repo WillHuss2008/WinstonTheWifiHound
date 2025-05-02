@@ -122,13 +122,33 @@ add_winston_command() {
     # Get the absolute path of the script
     script_path=$(realpath "$(dirname "$0")/Wifi_Hound_Script.sh")
     
+    # Check if .bashrc exists
+    if [ ! -f ~/.bashrc ]; then
+        winston_say 1 "CREATING .bashrc FILE..." $YELLOW
+        touch ~/.bashrc
+    fi
+    
+    # Check if alias already exists
+    if grep -q "alias winston=" ~/.bashrc; then
+        winston_say 1 "UPDATING EXISTING WINSTON ALIAS..." $YELLOW
+        # Remove existing alias
+        sed -i '/alias winston=/d' ~/.bashrc
+    fi
+    
     # Add alias to .bashrc
     echo "" >> ~/.bashrc
     echo "# Winston The Wifi Hound command" >> ~/.bashrc
     echo "alias winston='sudo $script_path'" >> ~/.bashrc
     
-    winston_say 1 "WINSTON COMMAND ADDED" $GREEN
-    winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY CHANGES" $YELLOW
+    # Verify the alias was added
+    if grep -q "alias winston=" ~/.bashrc; then
+        winston_say 1 "WINSTON COMMAND ADDED SUCCESSFULLY" $GREEN
+        winston_say 1 "PLEASE RUN 'source ~/.bashrc' TO APPLY CHANGES" $YELLOW
+    else
+        winston_say 1 "ERROR: FAILED TO ADD WINSTON COMMAND" $RED
+        winston_say 1 "PLEASE MANUALLY ADD THE FOLLOWING LINE TO YOUR ~/.bashrc:" $YELLOW
+        echo "alias winston='sudo $script_path'"
+    fi
 }
 
 # Function to set up permissions
