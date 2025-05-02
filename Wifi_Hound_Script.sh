@@ -1,7 +1,67 @@
 #!/bin/bash
-# start this at home
-# add password requirements later
-sudo rm /winston/kenel/*
+# Winston The Wifi Hound - Interactive Terminal Interface
+
+# Color definitions
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+BOLD='\033[1m'
+
+# Verbosity levels
+VERBOSITY_QUIET=0
+VERBOSITY_NORMAL=1
+VERBOSITY_VERBOSE=2
+VERBOSITY_DEBUG=3
+CURRENT_VERBOSITY=$VERBOSITY_NORMAL
+
+# Enable command history
+HISTFILE=~/.winston_history
+HISTSIZE=1000
+HISTFILESIZE=2000
+set -o history
+
+# Function to print messages with appropriate verbosity
+winston_say() {
+    local level=$1
+    local message=$2
+    local color=$3
+    
+    if [ $CURRENT_VERBOSITY -ge $level ]; then
+        if [ -z "$color" ]; then
+            echo -e "WINSTON: $message"
+        else
+            echo -e "${color}WINSTON: $message${NC}"
+        fi
+    fi
+}
+
+# Function to cleanup and exit
+cleanup_and_exit() {
+    winston_say $VERBOSITY_NORMAL "CLEANING UP..." $YELLOW
+    # Kill any running aircrack processes
+    pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
+    if [ ! -z "$pid" ]; then
+        sudo kill -9 $pid &>/dev/null
+        winston_say $VERBOSITY_DEBUG "Killed process $pid" $CYAN
+    fi
+    
+    # Kill any screen sessions
+    if screen -ls | grep -q "capture"; then
+        screen -X -S capture quit
+        winston_say $VERBOSITY_DEBUG "Closed capture screen" $CYAN
+    fi
+    if screen -ls | grep -q "deauth"; then
+        screen -X -S deauth quit
+        winston_say $VERBOSITY_DEBUG "Closed deauth screen" $CYAN
+    fi
+    
+    winston_say $VERBOSITY_NORMAL "GOODBYE!" $GREEN
+    exit 0
+}
 
 # Function to check if user is authorized
 check_authorization() {
@@ -9,7 +69,7 @@ check_authorization() {
     local password="$2"
     
     if ! ls /winston/$username &>/dev/null; then
-        echo "I'm sorry, this user doesn't exist on this device."
+        winston_say $VERBOSITY_NORMAL "I'M SORRY, THIS USER DOESN'T EXIST ON THIS DEVICE." $RED
         return 1
     elif ls /winston/$username &>/dev/null; then
         if [[ $(echo -n "$password" | sha256sum | awk {'print $1'}) = $(cat /winston/$username/user.profile | awk '/password/ {print $2}') ]]; then
@@ -26,11 +86,13 @@ scan_networks() {
     local target_network="$3"
     
     if [ "$mode" = "specific" ]; then
-        echo "WINSTON: SCANNING FOR SPECIFIC NETWORK: $target_network"
+        winston_say $VERBOSITY_NORMAL "SCANNING FOR SPECIFIC NETWORK: $target_network" $BLUE
         sudo airodump-ng $interface --essid "$target_network" -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
+        winston_say $VERBOSITY_DEBUG "Started airodump-ng with specific target" $CYAN
     else
-        echo "WINSTON: SCANNING ALL NETWORKS IN RANGE"
+        winston_say $VERBOSITY_NORMAL "SCANNING ALL NETWORKS IN RANGE" $BLUE
         sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
+        winston_say $VERBOSITY_DEBUG "Started airodump-ng for all networks" $CYAN
     fi
 }
 
@@ -40,10 +102,10 @@ crack_password() {
     local wordlist="/winston/kenel/wordlist.txt"
     
     if [ -f "$handshake_file" ]; then
-        echo "WINSTON: ATTEMPTING TO CRACK PASSWORD"
+        winston_say $VERBOSITY_NORMAL "ATTEMPTING TO CRACK PASSWORD" $MAGENTA
         aircrack-ng -w "$wordlist" "$handshake_file"
     else
-        echo "WINSTON: NO HANDSHAKE FILE FOUND"
+        winston_say $VERBOSITY_NORMAL "NO HANDSHAKE FILE FOUND" $RED
     fi
 }
 
@@ -51,176 +113,449 @@ crack_password() {
 start_capture_screen() {
     if screen -ls | grep -q "capture"; then
         screen -X -S capture quit
+        winston_say $VERBOSITY_DEBUG "Closed existing capture screen" $CYAN
     fi
     screen -dmS capture ./capture.sh
-    echo "WINSTON: CAPTURE SCREEN STARTED"
+    winston_say $VERBOSITY_NORMAL "CAPTURE SCREEN STARTED" $GREEN
 }
 
 # Function to start deauth screen
 start_deauth_screen() {
     if screen -ls | grep -q "deauth"; then
         screen -X -S deauth quit
+        winston_say $VERBOSITY_DEBUG "Closed existing deauth screen" $CYAN
     fi
     screen -dmS deauth ./deauth.sh
-    echo "WINSTON: DEAUTH SCREEN STARTED"
+    winston_say $VERBOSITY_NORMAL "DEAUTH SCREEN STARTED" $GREEN
 }
+
+# Function to show help
+show_help() {
+    local cmd="$1"
+    
+    if [ -z "$cmd" ]; then
+        winston_say $VERBOSITY_NORMAL "AVAILABLE COMMANDS" $MAGENTA
+        echo "------------------------"
+        echo -e "${BOLD}help [command]          ${NC}- Show help message (optional: specific command)"
+        echo -e "${BOLD}scan [all|target]       ${NC}- Scan for networks (all or specific target)"
+        echo -e "${BOLD}interfaces              ${NC}- List available wireless interfaces"
+        echo -e "${BOLD}monitor <interface>     ${NC}- Put interface in monitor mode"
+        echo -e "${BOLD}capture <network>       ${NC}- Start capturing packets for a network"
+        echo -e "${BOLD}deauth <network>        ${NC}- Start deauthentication attack"
+        echo -e "${BOLD}handshakes              ${NC}- List captured handshakes"
+        echo -e "${BOLD}crack <handshake>       ${NC}- Attempt to crack a handshake"
+        echo -e "${BOLD}wordlist <file>         ${NC}- Set custom wordlist file"
+        echo -e "${BOLD}status                  ${NC}- Show current operation status"
+        echo -e "${BOLD}history                 ${NC}- Show command history"
+        echo -e "${BOLD}verbose [level]         ${NC}- Set verbosity level (0-3)"
+        echo -e "${BOLD}clear                   ${NC}- Clear the screen"
+        echo -e "${BOLD}exit                    ${NC}- Exit Winston"
+        echo -e "${BOLD}docs <topic>            ${NC}- Show documentation"
+        echo "------------------------"
+        winston_say $VERBOSITY_NORMAL "TYPE 'help <command>' FOR DETAILED HELP ON A SPECIFIC COMMAND" $YELLOW
+    else
+        case $cmd in
+            "scan")
+                winston_say $VERBOSITY_NORMAL "SCAN COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} scan [all|target]"
+                echo -e "  ${BOLD}all    ${NC}- Scan for all networks in range"
+                echo -e "  ${BOLD}target ${NC}- Scan for a specific network (e.g., 'scan MyNetwork')"
+                echo -e "${BOLD}Example:${NC} scan all"
+                echo -e "         scan MyHomeNetwork"
+                ;;
+            "interfaces")
+                winston_say $VERBOSITY_NORMAL "INTERFACES COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} interfaces"
+                echo -e "${BOLD}Shows all available wireless interfaces with their current status${NC}"
+                echo -e "${BOLD}Example:${NC} interfaces"
+                ;;
+            "monitor")
+                winston_say $VERBOSITY_NORMAL "MONITOR COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} monitor <interface>"
+                echo -e "${BOLD}Puts the specified interface into monitor mode${NC}"
+                echo -e "${BOLD}Example:${NC} monitor wlan0"
+                ;;
+            "capture")
+                winston_say $VERBOSITY_NORMAL "CAPTURE COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} capture <network>"
+                echo -e "${BOLD}Starts capturing packets for the specified network${NC}"
+                echo -e "${BOLD}Example:${NC} capture MyNetwork"
+                ;;
+            "deauth")
+                winston_say $VERBOSITY_NORMAL "DEAUTH COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} deauth <network>"
+                echo -e "${BOLD}Starts deauthentication attack on the specified network${NC}"
+                echo -e "${BOLD}Example:${NC} deauth MyNetwork"
+                ;;
+            "verbose")
+                winston_say $VERBOSITY_NORMAL "VERBOSE COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} verbose [level]"
+                echo -e "  ${BOLD}0${NC} - Quiet mode (minimal output)"
+                echo -e "  ${BOLD}1${NC} - Normal mode (default)"
+                echo -e "  ${BOLD}2${NC} - Verbose mode (detailed output)"
+                echo -e "  ${BOLD}3${NC} - Debug mode (all output)"
+                echo -e "${BOLD}Example:${NC} verbose 2"
+                ;;
+            "docs")
+                show_docs $cmd
+                ;;
+            *)
+                winston_say $VERBOSITY_NORMAL "NO DETAILED HELP AVAILABLE FOR '$cmd'" $RED
+                ;;
+        esac
+    fi
+}
+
+# Function to handle interfaces
+list_interfaces() {
+    winston_say $VERBOSITY_NORMAL "AVAILABLE INTERFACES" $MAGENTA
+    echo "------------------------"
+    sudo airmon-ng | awk '/phy/ {print $2, $4, $5}'
+    echo "------------------------"
+}
+
+# Function to handle monitor mode
+set_monitor_mode() {
+    local interface="$1"
+    if [ -z "$interface" ]; then
+        winston_say $VERBOSITY_NORMAL "PLEASE SPECIFY AN INTERFACE" $RED
+        return 1
+    fi
+    
+    winston_say $VERBOSITY_NORMAL "PUTTING $interface INTO MONITOR MODE" $BLUE
+    sudo airmon-ng check kill &>/dev/null
+    sudo airmon-ng start $interface
+}
+
+# Function to handle handshake listing
+list_handshakes() {
+    winston_say $VERBOSITY_NORMAL "CAPTURED HANDSHAKES" $MAGENTA
+    echo "------------------------"
+    ./password_manager.sh list
+    echo "------------------------"
+}
+
+# Function to handle wordlist setting
+set_wordlist() {
+    local wordlist="$1"
+    if [ -z "$wordlist" ]; then
+        winston_say $VERBOSITY_NORMAL "PLEASE SPECIFY A WORDLIST FILE" $RED
+        return 1
+    fi
+    
+    if [ -f "$wordlist" ]; then
+        cp "$wordlist" "/winston/kenel/wordlist.txt"
+        winston_say $VERBOSITY_NORMAL "WORDLIST UPDATED" $GREEN
+    else
+        winston_say $VERBOSITY_NORMAL "WORDLIST FILE NOT FOUND" $RED
+    fi
+}
+
+# Function to show status
+show_status() {
+    winston_say $VERBOSITY_NORMAL "CURRENT STATUS" $MAGENTA
+    echo "------------------------"
+    echo -e "${BOLD}Active Interfaces:${NC}"
+    iwconfig 2>/dev/null | grep -B 1 "Mode:Monitor" | awk {'print $1'} | grep -v "^$"
+    echo ""
+    echo -e "${BOLD}Active Screens:${NC}"
+    screen -ls | grep -E "capture|deauth"
+    echo ""
+    echo -e "${BOLD}Recent Handshakes:${NC}"
+    ./password_manager.sh list | tail -n 5
+    echo "------------------------"
+}
+
+# Function to show command history
+show_history() {
+    winston_say $VERBOSITY_NORMAL "COMMAND HISTORY" $MAGENTA
+    echo "------------------------"
+    history | tail -n 20
+    echo "------------------------"
+}
+
+# Function to set verbosity level
+set_verbosity() {
+    local level=$1
+    if [[ $level =~ ^[0-3]$ ]]; then
+        CURRENT_VERBOSITY=$level
+        winston_say $VERBOSITY_NORMAL "VERBOSITY LEVEL SET TO $level" $GREEN
+    else
+        winston_say $VERBOSITY_NORMAL "INVALID VERBOSITY LEVEL. USE 0-3." $RED
+    fi
+}
+
+# Function to show documentation
+show_docs() {
+    local topic="$1"
+    
+    if [ -z "$topic" ]; then
+        winston_say $VERBOSITY_NORMAL "AVAILABLE DOCUMENTATION TOPICS" $MAGENTA
+        echo "------------------------"
+        echo -e "${BOLD}general${NC}     - General usage and features"
+        echo -e "${BOLD}commands${NC}    - Available commands and usage"
+        echo -e "${BOLD}interface${NC}   - Terminal interface features"
+        echo -e "${BOLD}security${NC}    - Security features and best practices"
+        echo -e "${BOLD}trouble${NC}     - Troubleshooting guide"
+        echo "------------------------"
+        winston_say $VERBOSITY_NORMAL "TYPE 'docs <topic>' FOR DETAILED INFORMATION" $YELLOW
+    else
+        case $topic in
+            "general")
+                winston_say $VERBOSITY_NORMAL "GENERAL USAGE" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Winston The Wifi Hound${NC} is an advanced WiFi security toolkit that combines"
+                echo "the power of aircrack-ng with a user-friendly interface."
+                echo ""
+                echo -e "${BOLD}Key Features:${NC}"
+                echo "- Interactive terminal interface"
+                echo "- Network scanning and monitoring"
+                echo "- Handshake capture and analysis"
+                echo "- Password cracking capabilities"
+                echo "- Secure password management"
+                echo "- User authentication system"
+                ;;
+            "commands")
+                show_help
+                ;;
+            "interface")
+                winston_say $VERBOSITY_NORMAL "TERMINAL INTERFACE FEATURES" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Command History${NC}"
+                echo "- Use up/down arrows to navigate"
+                echo "- View history with 'history' command"
+                echo "- History persists between sessions"
+                echo ""
+                echo -e "${BOLD}Tab Completion${NC}"
+                echo "- Press TAB to see available commands"
+                echo "- Press TAB after a command for options"
+                echo "- Available for interfaces, networks, and files"
+                echo ""
+                echo -e "${BOLD}Verbosity Levels${NC}"
+                echo "- Use 'verbose' command to adjust output"
+                echo "- Levels 0-3 for different detail levels"
+                echo ""
+                echo -e "${BOLD}Color Coding${NC}"
+                echo "- RED: Errors and warnings"
+                echo "- GREEN: Success messages"
+                echo "- YELLOW: Important notices"
+                echo "- BLUE: Information"
+                echo "- MAGENTA: Headers"
+                echo "- CYAN: Debug messages"
+                ;;
+            "security")
+                winston_say $VERBOSITY_NORMAL "SECURITY FEATURES" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Authentication${NC}"
+                echo "- User-based access control"
+                echo "- Secure password storage"
+                echo "- Session management"
+                echo ""
+                echo -e "${BOLD}Data Protection${NC}"
+                echo "- Encrypted password storage"
+                echo "- Secure handshake storage"
+                echo "- Process cleanup on exit"
+                echo ""
+                echo -e "${BOLD}Best Practices${NC}"
+                echo "- Always use with authorization"
+                echo "- Keep wordlists secure"
+                echo "- Regular cleanup of temporary files"
+                echo "- Monitor system resources"
+                ;;
+            "trouble")
+                winston_say $VERBOSITY_NORMAL "TROUBLESHOOTING GUIDE" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Common Issues:${NC}"
+                echo "1. Permission issues:"
+                echo "   sudo chmod +x *.sh"
+                echo ""
+                echo "2. Screen session problems:"
+                echo "   sudo apt-get install screen"
+                echo ""
+                echo "3. Aircrack-ng issues:"
+                echo "   sudo apt-get install aircrack-ng"
+                echo ""
+                echo -e "${BOLD}Debugging:${NC}"
+                echo "- Use 'verbose 3' for maximum output"
+                echo "- Check status with 'status' command"
+                echo "- Verify interface with 'interfaces'"
+                ;;
+            *)
+                winston_say $VERBOSITY_NORMAL "NO DOCUMENTATION AVAILABLE FOR '$topic'" $RED
+                winston_say $VERBOSITY_NORMAL "TYPE 'docs' TO SEE AVAILABLE TOPICS" $YELLOW
+                ;;
+        esac
+    fi
+}
+
+# Enhanced tab completion function
+_winston_complete() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    opts="help scan interfaces monitor capture deauth handshakes crack wordlist status history verbose clear exit docs"
+
+    case "${prev}" in
+        help)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+        scan)
+            COMPREPLY=( $(compgen -W "all" -- ${cur}) )
+            return 0
+            ;;
+        monitor)
+            # Complete with interface names
+            COMPREPLY=( $(compgen -W "$(iwconfig 2>/dev/null | grep -B 1 'Mode:Monitor' | awk {'print $1'} | grep -v '^$')" -- ${cur}) )
+            return 0
+            ;;
+        capture|deauth)
+            # Complete with network names
+            COMPREPLY=( $(compgen -W "$(cat /winston/kenel/airodump-ng-01.csv 2>/dev/null | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" -- ${cur}) )
+            return 0
+            ;;
+        verbose)
+            COMPREPLY=( $(compgen -W "0 1 2 3" -- ${cur}) )
+            return 0
+            ;;
+        wordlist)
+            # Complete with .txt files in current directory
+            COMPREPLY=( $(compgen -f -X "!*.txt" -- ${cur}) )
+            return 0
+            ;;
+        docs)
+            COMPREPLY=( $(compgen -W "general commands interface security trouble" -- ${cur}) )
+            return 0
+            ;;
+        *)
+            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+            return 0
+            ;;
+    esac
+}
+
+# Set up tab completion
+complete -F _winston_complete winston
+
+# Trap Ctrl+C and other termination signals
+trap cleanup_and_exit SIGINT SIGTERM
 
 # Main authentication loop
 while true; 
 do
     clear
-    echo "please enter your username and password"
-    read -p "username: " username
-    read -sp "password: " password
-    echo ""
+    echo "WINSTON: WELCOME TO WIFI HOUND"
+    echo "1. Login"
+    echo "2. Exit"
+    read -p "Select an option: " login_option
     
-    if check_authorization "$username" "$password"; then
-        echo "WINSTON: WELCOME."
-        clear
-        break
+    if [ "$login_option" = "2" ]; then
+        cleanup_and_exit
+    elif [ "$login_option" = "1" ]; then
+        echo "WINSTON: PLEASE ENTER YOUR CREDENTIALS"
+        read -p "username: " username
+        read -sp "password: " password
+        echo ""
+        
+        if check_authorization "$username" "$password"; then
+            echo "WINSTON: WELCOME."
+            clear
+            break
+        fi
+    else
+        echo "WINSTON: INVALID OPTION. PLEASE TRY AGAIN."
+        sleep 2
     fi
 done
-
-# Kill any interfering processes
-processes="$(sudo airmon-ng check | sed -n '/Name/,$p' | awk {'print $2'} | grep -v Name | grep -v '^[[:space:]]*$')"
-num_processes=$(echo "$processes" | wc -l)
-
-if [[ $((num_processes)) -ne 0 ]]; then
-    sudo airmon-ng check kill &>/dev/null
-fi
-
-# Interface selection
-if iwconfig 2>/dev/null | grep "Mode:Monitor"; then
-    interface=$(iwconfig 2>/dev/null | grep -B 1 "Mode:Monitor" | awk {'print $1'} | head -n 1)
-else
-    names=$(sudo airmon-ng | awk '/phy/ {print $4, $5}')
-    interfaces=$(sudo airmon-ng | awk '/phy/ {print $2}')
-    lines=$(echo "$interfaces" | wc -l)
-    echo "WINSTON: HERE ARE YOUR INTERFACE OPTIONS. PLEASE PICK WIRELESS INTERFACE THAT YOU'D LIKE TO USE TO SCAN FOR NETWORKS"
-    echo ""
-    for i in $(seq 1 $lines); do
-        interface=$(echo "$interfaces" | sed -n ${i}p)
-        name=$(echo "$names" | sed -n ${i}p)
-        echo "$interface: $name"
-    done
-    echo ""
-    read -p "$username: " option
-    interface=$(echo "$interfaces" | grep $option)
-fi
 
 # Create necessary directories
 if ! ls /winston/kenel; then
     sudo mkdir -p /winston/kenel
 fi
 
-# Network scanning mode selection
-echo "WINSTON: SELECT SCANNING MODE"
-echo "[1] Scan all networks in range"
-echo "[2] Scan for specific network"
-read -p "$username: " scan_mode
-
-if [ "$scan_mode" = "2" ]; then
-    read -p "Enter target network name: " target_network
-    scan_networks "$interface" "specific" "$target_network"
-else
-    scan_networks "$interface" "range" ""
-fi
-
-through=1
-through=$(($through))
-
+# Main command loop
 while true; do
-    if [[ $through -gt 1 ]]; then
-        clear
-        echo "WINSTON: HERE'S YOUR OPTIONS"
-        echo "$(cat /winston/kenel/airodump-ng-01.csv | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" > /winston/kenel/network_options.txt
-        options=/winston/kenel/network_options.txt
-        lines=$(cat $options | wc -l 2>/dev/null)
-        for i in $(seq 1 $(($lines+1))); do
-            if [[ $i -eq $(($lines + 1)) ]]; then
-                echo "[$i] refresh"
+    echo -ne "${BOLD}winston> ${NC}"
+    read -e cmd args
+    
+    case $cmd in
+        "help")
+            show_help $args
+            ;;
+        "docs")
+            show_docs $args
+            ;;
+        "scan")
+            if [ "$args" = "all" ]; then
+                scan_networks "$interface" "range" ""
+            elif [ ! -z "$args" ]; then
+                scan_networks "$interface" "specific" "$args"
             else
-                echo "[$i] $(cat $options | sed -n ${i}p)"
+                winston_say $VERBOSITY_NORMAL "USAGE: scan [all|target]" $RED
             fi
-        done
-        echo "WINSTON: PLEASE PICK AN OPTION"
-        read -p "$username: " line
-        line=$(($line))
-        if [[ $line -ge 1 && $line -lt $(($lines + 1)) ]]; then
-            option=$(cat $options | sed -n ${line}p)
-            name="$(cat /winston/kenel/airodump-ng-01.csv | grep $option | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
-            break
-        elif [ $line -eq $(($lines + 1)) ]; then
-            echo "WINSTON: PLEASE WAIT"
-            sleep 10
+            ;;
+        "interfaces")
+            list_interfaces
+            ;;
+        "monitor")
+            set_monitor_mode $args
+            ;;
+        "capture")
+            if [ ! -z "$args" ]; then
+                echo "name: $args" > /winston/kenel/network_settings
+                start_capture_screen
+            else
+                winston_say $VERBOSITY_NORMAL "USAGE: capture <network>" $RED
+            fi
+            ;;
+        "deauth")
+            if [ ! -z "$args" ]; then
+                echo "name: $args" > /winston/kenel/network_settings
+                start_deauth_screen
+            else
+                winston_say $VERBOSITY_NORMAL "USAGE: deauth <network>" $RED
+            fi
+            ;;
+        "handshakes")
+            list_handshakes
+            ;;
+        "crack")
+            if [ ! -z "$args" ]; then
+                crack_password "$args"
+            else
+                winston_say $VERBOSITY_NORMAL "USAGE: crack <handshake>" $RED
+            fi
+            ;;
+        "wordlist")
+            set_wordlist $args
+            ;;
+        "status")
+            show_status
+            ;;
+        "history")
+            show_history
+            ;;
+        "verbose")
+            set_verbosity $args
+            ;;
+        "clear")
+            clear
+            ;;
+        "exit")
+            cleanup_and_exit
+            ;;
+        "")
             continue
-        fi
-        break
-    elif [[ $through -eq 1 ]]; then
-        echo "WINSTON: INITIALIZING"
-        through=$(($through + 1))
-        sleep 5s
-        continue
-    fi
+            ;;
+        *)
+            winston_say $VERBOSITY_NORMAL "UNKNOWN COMMAND. TYPE 'help' FOR AVAILABLE COMMANDS" $RED
+            ;;
+    esac
 done
-
-dump=/winston/kenel/airodump-ng-01.csv
-
-essid=$(cat $dump | grep $name | head -n 1 | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')
-bssid=$(cat $dump | grep $name | head -n 1 | awk {'print $1'} | grep -oe '[A-Z0-9_:]\+')
-channel=$(cat $dump | grep $name | head -n 1 | awk {'print $6'} | grep -oe '[0-9]\+')
-
-pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
-sudo kill -9 $pid &>/dev/null
-clear
-
-echo "name: $essid
-ssid: $bssid
-channel: $channel
-interface: $interface" > /winston/kenel/network_settings
-
-# Start capture screen
-start_capture_screen
-
-echo "WINSTON: PLEASE WAIT WHILE WE PREPARE TO BULLY SOME DEVICES."
-
-while true; do
-    sleep 5s
-    if ! cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-F0-9:]\+'; then
-        clear
-        echo "WINSTON: PLEASE WAIT"
-    elif cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[0-9aA-F:]\+'; then
-        doptions=$(cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-Z0-9:]\+')
-        echo "$doptions"
-        echo "$doptions" > /winston/kenel/device_options
-        break
-    fi
-done
-
-# Start deauth screen
-start_deauth_screen
-
-while true; do
-    if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
-        # Kill capture screen
-        screen -X -S capture quit
-        # Kill deauth screen
-        screen -X -S deauth quit
-        echo "WINSTON: HANDSHAKE CAPTURED!"
-        break
-    else
-        continue
-    fi
-done
-
-# When a handshake is captured, store it
-if [ -f "/winston/kenel/psk-01.cap" ]; then
-    ./password_manager.sh store "$essid" "$bssid" "PENDING" "/winston/kenel/psk-01.cap"
-    echo "WINSTON: HANDSHAKE CAPTURED AND STORED"
-fi
-
-# Cleanup
-pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
-sudo kill -9 $pid &>/dev/null
-
-#begin solving problem with capture and deauth scripts

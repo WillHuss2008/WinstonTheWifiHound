@@ -1,6 +1,17 @@
 # Winston The Wifi Hound
 
-A user-friendly interface for aircrack-ng that makes wireless network auditing accessible to beginners.
+Winston is an advanced WiFi security toolkit that combines the power of aircrack-ng with a user-friendly interface. It's designed to help security professionals and researchers test and analyze wireless network security.
+
+## Features
+
+- Interactive terminal interface with command history and tab completion
+- Color-coded output for better readability
+- Adjustable verbosity levels
+- Network scanning and monitoring
+- Handshake capture and analysis
+- Password cracking capabilities
+- Secure password management
+- User authentication system
 
 ## Prerequisites
 
@@ -17,189 +28,148 @@ sudo apt-get install aircrack-ng screen wireless-tools
 
 ## Installation
 
-1. Clone this repository:
+1. Clone the repository:
 ```bash
 git clone https://github.com/yourusername/WinstonTheWifiHound.git
 cd WinstonTheWifiHound
 ```
 
-2. Make all scripts executable:
+2. Install dependencies:
 ```bash
-chmod +x *.sh
+sudo apt-get update
+sudo apt-get install aircrack-ng screen
 ```
 
-3. Run the setup script:
+3. Set up the required directories:
 ```bash
-sudo ./Wifi_Hound_Setup.sh
+sudo mkdir -p /winston/kenel
 ```
-This will:
-- Create your user account
-- Set up necessary directories
-- Create a default wordlist
-- Configure permissions
+
+4. Make the scripts executable:
+```bash
+chmod +x Wifi_Hound_Script.sh
+chmod +x capture.sh
+chmod +x deauth.sh
+chmod +x password_manager.sh
+```
 
 ## Usage
 
-### Starting the Program
+### Starting Winston
+
+Run the main script:
 ```bash
 sudo ./Wifi_Hound_Script.sh
 ```
 
-### Main Features
-1. **Network Scanning**
-   - Scan all networks in range
-   - Target specific networks
-   - View available networks and their details
+### Terminal Interface
 
-2. **Password Management**
-   - View stored passwords:
-     ```bash
-     sudo ./password_manager.sh list
-     ```
-   - Search for specific networks:
-     ```bash
-     sudo ./password_manager.sh search <network_name>
-     ```
+Winston provides an interactive terminal interface with the following features:
 
-### Common Use Cases
+#### Command History
+- Use up/down arrows to navigate through command history
+- View recent commands with the `history` command
+- History is persisted between sessions
 
-1. **Scanning All Networks**
-   ```bash
-   sudo ./Wifi_Hound_Script.sh
-   # Select option 1 when prompted for scanning mode
-   ```
+#### Tab Completion
+- Press TAB to see available commands
+- Press TAB after a command to see available options
+- Available completions:
+  - Interface names for `monitor` command
+  - Network names for `capture` and `deauth` commands
+  - Wordlist files for `wordlist` command
+  - Verbosity levels for `verbose` command
 
-2. **Targeting a Specific Network**
-   ```bash
-   sudo ./Wifi_Hound_Script.sh
-   # Select option 2 when prompted
-   # Enter the network name (SSID)
-   ```
+#### Verbosity Levels
+Use the `verbose` command to adjust output detail:
+- `verbose 0`: Quiet mode (minimal output)
+- `verbose 1`: Normal mode (default)
+- `verbose 2`: Verbose mode (detailed output)
+- `verbose 3`: Debug mode (all output)
 
-3. **Checking Captured Handshakes**
-   ```bash
-   sudo ./password_manager.sh list
-   # Look for entries with "PENDING" status
-   ```
+#### Color Coding
+- RED: Errors and warnings
+- GREEN: Success messages
+- YELLOW: Warnings and important notices
+- BLUE: Information messages
+- MAGENTA: Headers and command help
+- CYAN: Debug messages
+- BOLD: Command names and important text
 
-4. **Searching for Previous Captures**
-   ```bash
-   sudo ./password_manager.sh search "NetworkName"
-   ```
+### Available Commands
 
-### Customizing the Wordlist
+- `help [command]` - Show help message (optional: specific command)
+- `scan [all|target]` - Scan for networks (all or specific target)
+- `interfaces` - List available wireless interfaces
+- `monitor <interface>` - Put interface in monitor mode
+- `capture <network>` - Start capturing packets for a network
+- `deauth <network>` - Start deauthentication attack
+- `handshakes` - List captured handshakes
+- `crack <handshake>` - Attempt to crack a handshake
+- `wordlist <file>` - Set custom wordlist file
+- `status` - Show current operation status
+- `history` - Show command history
+- `verbose [level]` - Set verbosity level (0-3)
+- `clear` - Clear the screen
+- `exit` - Exit Winston
 
-The default wordlist is located at `/winston/kenel/wordlist.txt`. You can customize it in several ways:
+### Getting Help
 
-1. **Add Custom Passwords**
-   ```bash
-   sudo nano /winston/kenel/wordlist.txt
-   # Add your passwords, one per line
-   ```
+- Type `help` to see all available commands
+- Type `help <command>` for detailed help on a specific command
+- Use `verbose 2` or `verbose 3` for more detailed output
+- Check the status with `status` command
 
-2. **Use a Larger Wordlist**
-   ```bash
-   # Download a larger wordlist (example)
-   sudo wget https://github.com/danielmiessler/SecLists/raw/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt -O /winston/kenel/wordlist.txt
-   ```
+## Security Features
 
-3. **Create a Targeted Wordlist**
-   ```bash
-   # Combine multiple wordlists
-   sudo cat wordlist1.txt wordlist2.txt > /winston/kenel/wordlist.txt
-   ```
+- User authentication system
+- Secure password storage
+- Process cleanup on exit
+- Screen session management
+- Error handling and logging
 
-### How It Works
-1. The program will ask for your username and password
-2. Select your wireless interface
-3. Choose scanning mode (all networks or specific network)
-4. Select target network from the list
-5. The program will:
-   - Start capturing packets
-   - Monitor for connected devices
-   - Attempt to capture handshakes
-   - Store successful captures
+## File Structure
 
-## Security Notes
-- All operations require sudo privileges
-- Passwords are stored securely using SHA-256 hashing
-- Captured handshakes are stored in `/winston/kenel/handshakes/`
-- User data is stored in `/winston/username/`
+- `Wifi_Hound_Script.sh` - Main script
+- `capture.sh` - Handshake capture script
+- `deauth.sh` - Deauthentication script
+- `password_manager.sh` - Password management script
+- `/winston/kenel/` - Working directory for temporary files
+- `/winston/<username>/` - User-specific directories
 
 ## Troubleshooting
 
-### Common Issues and Solutions
-
-1. **Script Permission Issues**
+1. If you encounter permission issues:
    ```bash
-   # Fix permissions for all scripts
    sudo chmod +x *.sh
-   # Fix ownership
-   sudo chown -R $USER:$USER .
    ```
 
-2. **Wireless Interface Problems**
+2. If screen sessions aren't working:
    ```bash
-   # Check available interfaces
-   iwconfig
-   # Check if interface supports monitor mode
-   sudo iw list | grep -A 5 "Supported interface modes"
-   # Put interface in monitor mode manually if needed
-   sudo airmon-ng start <interface>
+   sudo apt-get install screen
    ```
 
-3. **Screen Session Issues**
+3. If aircrack-ng isn't working:
    ```bash
-   # List all screen sessions
-   screen -ls
-   # Kill a specific screen session
-   screen -X -S <session_id> quit
-   # Kill all screen sessions
-   pkill screen
+   sudo apt-get install aircrack-ng
    ```
 
-4. **Directory Permission Issues**
+4. For verbose debugging:
    ```bash
-   # Fix permissions for Winston directories
-   sudo chmod -R 700 /winston
-   sudo chown -R $USER:$USER /winston
+   verbose 3
    ```
 
-5. **Process Management**
-   ```bash
-   # Check for running aircrack processes
-   ps aux | grep aircrack
-   # Kill interfering processes
-   sudo airmon-ng check kill
-   ```
+## Contributing
 
-### Error Messages and Solutions
+Feel free to submit issues and enhancement requests!
 
-1. **"Cannot execute: required file not found"**
-   - Ensure you're in the correct directory
-   - Check if scripts are executable
-   - Verify file permissions
+## License
 
-2. **"No wireless interfaces found"**
-   - Check if wireless card is recognized
-   - Verify driver installation
-   - Try different USB port (if using USB adapter)
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-3. **"Permission denied"**
-   - Run commands with sudo
-   - Check file permissions
-   - Verify user ownership
+## Disclaimer
 
-4. **"Screen session not found"**
-   - Restart the main script
-   - Manually kill existing screen sessions
-   - Check screen installation
-
-## Legal Disclaimer
-This tool is for educational and authorized security testing purposes only. Always:
-- Obtain proper authorization before testing any network
-- Respect privacy and data protection laws
-- Use responsibly and ethically
+This tool is for educational and security research purposes only. Always obtain proper authorization before testing any network security.
 
 ## Best Practices
 1. Always test on your own networks first
