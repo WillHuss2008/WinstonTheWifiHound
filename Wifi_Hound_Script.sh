@@ -11,6 +11,12 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
+# Security settings
+MAX_LOGIN_ATTEMPTS=3
+SESSION_TIMEOUT=3600  # 1 hour
+ENCRYPTION_KEY_FILE="/winston/kenel/.encryption_key"
+LOG_FILE="/winston/kenel/winston.log"
+
 # Verbosity levels
 VERBOSITY_QUIET=0
 VERBOSITY_NORMAL=1
@@ -18,11 +24,20 @@ VERBOSITY_VERBOSE=2
 VERBOSITY_DEBUG=3
 CURRENT_VERBOSITY=$VERBOSITY_NORMAL
 
-# Enable command history
+# Enable command history with readline
 HISTFILE=~/.winston_history
 HISTSIZE=1000
 HISTFILESIZE=2000
+HISTCONTROL=ignoreboth:erasedups
 set -o history
+
+# Function to log events
+log_event() {
+    local level="$1"
+    local message="$2"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
+}
 
 # Function to print messages with appropriate verbosity
 winston_say() {
@@ -36,12 +51,23 @@ winston_say() {
         else
             echo -e "${color}WINSTON: $message${NC}"
         fi
+        log_event "INFO" "$message"
     fi
+}
+
+# Function to handle errors
+handle_error() {
+    local error_msg="$1"
+    local exit_code="${2:-1}"
+    winston_say $VERBOSITY_NORMAL "ERROR: $error_msg" $RED
+    log_event "ERROR" "$error_msg"
+    return $exit_code
 }
 
 # Function to cleanup and exit
 cleanup_and_exit() {
     winston_say $VERBOSITY_NORMAL "CLEANING UP..." $YELLOW
+    
     # Kill any running aircrack processes
     pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
     if [ ! -z "$pid" ]; then
@@ -59,7 +85,13 @@ cleanup_and_exit() {
         winston_say $VERBOSITY_DEBUG "Closed deauth screen" $CYAN
     fi
     
+    # Clear sensitive data
+    if [ -f "$ENCRYPTION_KEY_FILE" ]; then
+        shred -u "$ENCRYPTION_KEY_FILE"
+    fi
+    
     winston_say $VERBOSITY_NORMAL "GOODBYE!" $GREEN
+    log_event "INFO" "Session ended"
     exit 0
 }
 
@@ -67,16 +99,58 @@ cleanup_and_exit() {
 check_authorization() {
     local username="$1"
     local password="$2"
+    local attempts=0
     
-    if ! ls /winston/$username &>/dev/null; then
-        winston_say $VERBOSITY_NORMAL "I'M SORRY, THIS USER DOESN'T EXIST ON THIS DEVICE." $RED
-        return 1
-    elif ls /winston/$username &>/dev/null; then
-        if [[ $(echo -n "$password" | sha256sum | awk {'print $1'}) = $(cat /winston/$username/user.profile | awk '/password/ {print $2}') ]]; then
-            return 0
+    while [ $attempts -lt $MAX_LOGIN_ATTEMPTS ]; do
+        if ! ls /winston/$username &>/dev/null; then
+            winston_say $VERBOSITY_NORMAL "I'M SORRY, THIS USER DOESN'T EXIST ON THIS DEVICE." $RED
+            log_event "WARNING" "Failed login attempt for non-existent user: $username"
+            return 1
+        elif ls /winston/$username &>/dev/null; then
+            if [[ $(echo -n "$password" | sha256sum | awk {'print $1'}) = $(cat /winston/$username/user.profile | awk '/password/ {print $2}') ]]; then
+                log_event "INFO" "Successful login for user: $username"
+                return 0
+            fi
+        fi
+        attempts=$((attempts + 1))
+        if [ $attempts -lt $MAX_LOGIN_ATTEMPTS ]; then
+            winston_say $VERBOSITY_NORMAL "INVALID CREDENTIALS. ATTEMPTS REMAINING: $((MAX_LOGIN_ATTEMPTS - attempts))" $RED
+            log_event "WARNING" "Failed login attempt for user: $username"
+        fi
+    done
+    
+    winston_say $VERBOSITY_NORMAL "TOO MANY FAILED ATTEMPTS. PLEASE TRY AGAIN LATER." $RED
+    log_event "WARNING" "Account locked for user: $username"
+    return 1
+}
+
+# Function to check session timeout
+check_session_timeout() {
+    if [ -f "/tmp/winston_session_start" ]; then
+        local session_start=$(cat "/tmp/winston_session_start")
+        local current_time=$(date +%s)
+        local elapsed=$((current_time - session_start))
+        
+        if [ $elapsed -gt $SESSION_TIMEOUT ]; then
+            winston_say $VERBOSITY_NORMAL "SESSION TIMEOUT. PLEASE LOGIN AGAIN." $YELLOW
+            log_event "WARNING" "Session timeout for user: $username"
+            cleanup_and_exit
         fi
     fi
-    return 1
+}
+
+# Function to handle command history navigation
+setup_history_navigation() {
+    # Enable arrow key navigation
+    bind '"\e[A": history-search-backward'
+    bind '"\e[B": history-search-forward'
+    
+    # Enable tab completion
+    bind 'set show-all-if-ambiguous on'
+    bind 'set completion-ignore-case on'
+    
+    # Enable history expansion
+    bind 'set history-expand-line on'
 }
 
 # Function to handle network scanning
@@ -85,14 +159,68 @@ scan_networks() {
     local mode="$2"
     local target_network="$3"
     
+    # Check if interface is in monitor mode
+    if ! iwconfig "$interface" 2>/dev/null | grep -q "Mode:Monitor"; then
+        handle_error "Interface $interface is not in monitor mode. Use 'monitor $interface' first."
+        return 1
+    fi
+    
+    # Create output directory if it doesn't exist
+    mkdir -p "$KENEL_DIR"
+    
     if [ "$mode" = "specific" ]; then
         winston_say $VERBOSITY_NORMAL "SCANNING FOR SPECIFIC NETWORK: $target_network" $BLUE
-        sudo airodump-ng $interface --essid "$target_network" -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
-        winston_say $VERBOSITY_DEBUG "Started airodump-ng with specific target" $CYAN
+        log_event "INFO" "Starting scan for specific network: $target_network"
+        
+        # Start airodump-ng in a screen session for better control
+        screen -dmS scan sudo airodump-ng "$interface" --essid "$target_network" -w "$KENEL_DIR/airodump-ng" --write-interval 1 --output-format csv
+        
+        # Show real-time updates
+        echo -e "\n${BOLD}Scanning for $target_network...${NC}"
+        echo "Press Ctrl+C to stop scanning"
+        echo "------------------------"
+        
+        # Monitor the output file for updates
+        tail -f "$KENEL_DIR/airodump-ng-01.csv" 2>/dev/null | while read -r line; do
+            if [[ $line == *"$target_network"* ]]; then
+                echo -e "${GREEN}Found network: $line${NC}"
+            fi
+        done
     else
         winston_say $VERBOSITY_NORMAL "SCANNING ALL NETWORKS IN RANGE" $BLUE
-        sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
-        winston_say $VERBOSITY_DEBUG "Started airodump-ng for all networks" $CYAN
+        log_event "INFO" "Starting scan for all networks"
+        
+        # Start airodump-ng in a screen session
+        screen -dmS scan sudo airodump-ng "$interface" -w "$KENEL_DIR/airodump-ng" --write-interval 1 --output-format csv
+        
+        # Show real-time updates
+        echo -e "\n${BOLD}Scanning for networks...${NC}"
+        echo "Press Ctrl+C to stop scanning"
+        echo "------------------------"
+        echo -e "${BOLD}SSID${NC} | ${BOLD}BSSID${NC} | ${BOLD}Channel${NC} | ${BOLD}Signal${NC} | ${BOLD}Encryption${NC}"
+        echo "------------------------"
+        
+        # Monitor the output file for updates
+        tail -f "$KENEL_DIR/airodump-ng-01.csv" 2>/dev/null | while read -r line; do
+            if [[ $line == *"Station MAC"* ]]; then
+                continue
+            fi
+            if [[ $line == *","* ]]; then
+                IFS=',' read -r bssid first_time last_time channel speed privacy cipher authentication power beacons iv lan ip length ssid <<< "$line"
+                if [ ! -z "$ssid" ] && [ ! -z "$bssid" ]; then
+                    echo -e "${GREEN}$ssid${NC} | $bssid | $channel | $power dBm | $privacy"
+                fi
+            fi
+        done
+    fi
+}
+
+# Function to stop scanning
+stop_scan() {
+    if screen -ls | grep -q "scan"; then
+        screen -X -S scan quit
+        winston_say $VERBOSITY_NORMAL "SCAN STOPPED" $YELLOW
+        log_event "INFO" "Scan stopped by user"
     fi
 }
 
@@ -109,14 +237,88 @@ crack_password() {
     fi
 }
 
+# Function to handle interfaces
+list_interfaces() {
+    winston_say $VERBOSITY_NORMAL "SCANNING FOR WIRELESS INTERFACES..." $BLUE
+    echo -e "\n${BOLD}Available Wireless Interfaces${NC}"
+    echo "------------------------"
+    echo -e "${BOLD}Interface${NC} | ${BOLD}Status${NC} | ${BOLD}Mode${NC}"
+    echo "------------------------"
+    
+    # Get interface information
+    iwconfig 2>/dev/null | while IFS= read -r line; do
+        if [[ $line =~ ^[a-zA-Z0-9]+ ]]; then
+            interface=$(echo "$line" | awk '{print $1}')
+            mode=$(echo "$line" | grep -o "Mode:[^ ]*" | cut -d: -f2)
+            status="Active"
+            if [ -z "$mode" ]; then
+                mode="Managed"
+                status="Inactive"
+            fi
+            echo -e "${GREEN}$interface${NC} | $status | $mode"
+        fi
+    done
+    echo "------------------------"
+}
+
+# Function to handle monitor mode
+set_monitor_mode() {
+    local interface="$1"
+    if [ -z "$interface" ]; then
+        handle_error "PLEASE SPECIFY AN INTERFACE"
+        return 1
+    fi
+    
+    winston_say $VERBOSITY_NORMAL "CONFIGURING $interface..." $BLUE
+    echo -e "\n${BOLD}Step 1:${NC} Checking interface status"
+    
+    # Check if interface exists
+    if ! iwconfig 2>/dev/null | grep -q "^$interface"; then
+        handle_error "Interface $interface not found"
+        return 1
+    fi
+    
+    echo -e "${BOLD}Step 2:${NC} Stopping interfering processes"
+    sudo airmon-ng check kill &>/dev/null
+    
+    echo -e "${BOLD}Step 3:${NC} Enabling monitor mode"
+    if sudo airmon-ng start "$interface" &>/dev/null; then
+        echo -e "${GREEN}Successfully enabled monitor mode on $interface${NC}"
+        log_event "INFO" "Enabled monitor mode on $interface"
+    else
+        handle_error "Failed to enable monitor mode on $interface"
+        return 1
+    fi
+}
+
 # Function to start capture screen
 start_capture_screen() {
     if screen -ls | grep -q "capture"; then
         screen -X -S capture quit
         winston_say $VERBOSITY_DEBUG "Closed existing capture screen" $CYAN
     fi
-    screen -dmS capture ./capture.sh
-    winston_say $VERBOSITY_NORMAL "CAPTURE SCREEN STARTED" $GREEN
+    
+    winston_say $VERBOSITY_NORMAL "STARTING PACKET CAPTURE..." $BLUE
+    echo -e "\n${BOLD}Capture Session${NC}"
+    echo "------------------------"
+    echo -e "${BOLD}Status:${NC} Starting..."
+    
+    # Start capture in screen session
+    screen -dmS capture /winston/scripts/capture.sh
+    
+    # Wait a moment and check if screen started
+    sleep 2
+    if screen -ls | grep -q "capture"; then
+        echo -e "${BOLD}Status:${NC} ${GREEN}Running${NC}"
+        echo -e "${BOLD}Screen:${NC} capture"
+        echo -e "${BOLD}To view:${NC} screen -r capture"
+        echo -e "${BOLD}To detach:${NC} Ctrl+A, D"
+        echo "------------------------"
+        log_event "INFO" "Started packet capture session"
+    else
+        handle_error "Failed to start capture session"
+        return 1
+    fi
 }
 
 # Function to start deauth screen
@@ -125,8 +327,28 @@ start_deauth_screen() {
         screen -X -S deauth quit
         winston_say $VERBOSITY_DEBUG "Closed existing deauth screen" $CYAN
     fi
-    screen -dmS deauth ./deauth.sh
-    winston_say $VERBOSITY_NORMAL "DEAUTH SCREEN STARTED" $GREEN
+    
+    winston_say $VERBOSITY_NORMAL "STARTING DEAUTHENTICATION ATTACK..." $BLUE
+    echo -e "\n${BOLD}Deauth Session${NC}"
+    echo "------------------------"
+    echo -e "${BOLD}Status:${NC} Starting..."
+    
+    # Start deauth in screen session
+    screen -dmS deauth /winston/scripts/deauth.sh
+    
+    # Wait a moment and check if screen started
+    sleep 2
+    if screen -ls | grep -q "deauth"; then
+        echo -e "${BOLD}Status:${NC} ${GREEN}Running${NC}"
+        echo -e "${BOLD}Screen:${NC} deauth"
+        echo -e "${BOLD}To view:${NC} screen -r deauth"
+        echo -e "${BOLD}To detach:${NC} Ctrl+A, D"
+        echo "------------------------"
+        log_event "INFO" "Started deauthentication session"
+    else
+        handle_error "Failed to start deauthentication session"
+        return 1
+    fi
 }
 
 # Function to show help
@@ -212,32 +434,20 @@ show_help() {
     fi
 }
 
-# Function to handle interfaces
-list_interfaces() {
-    winston_say $VERBOSITY_NORMAL "AVAILABLE INTERFACES" $MAGENTA
-    echo "------------------------"
-    sudo airmon-ng | awk '/phy/ {print $2, $4, $5}'
-    echo "------------------------"
-}
-
-# Function to handle monitor mode
-set_monitor_mode() {
-    local interface="$1"
-    if [ -z "$interface" ]; then
-        winston_say $VERBOSITY_NORMAL "PLEASE SPECIFY AN INTERFACE" $RED
-        return 1
-    fi
-    
-    winston_say $VERBOSITY_NORMAL "PUTTING $interface INTO MONITOR MODE" $BLUE
-    sudo airmon-ng check kill &>/dev/null
-    sudo airmon-ng start $interface
-}
-
 # Function to handle handshake listing
 list_handshakes() {
-    winston_say $VERBOSITY_NORMAL "CAPTURED HANDSHAKES" $MAGENTA
+    winston_say $VERBOSITY_NORMAL "CHECKING CAPTURED HANDSHAKES..." $BLUE
+    echo -e "\n${BOLD}Captured Handshakes${NC}"
     echo "------------------------"
-    /winston/scripts/password_manager.sh list
+    echo -e "${BOLD}Network${NC} | ${BOLD}BSSID${NC} | ${BOLD}Date${NC} | ${BOLD}Status${NC}"
+    echo "------------------------"
+    
+    # Get handshake information
+    /winston/scripts/password_manager.sh list | while IFS='|' read -r timestamp network bssid password; do
+        if [ ! -z "$network" ]; then
+            echo -e "${GREEN}$network${NC} | $bssid | $timestamp | ${GREEN}Captured${NC}"
+        fi
+    done
     echo "------------------------"
 }
 
@@ -259,24 +469,64 @@ set_wordlist() {
 
 # Function to show status
 show_status() {
-    winston_say $VERBOSITY_NORMAL "CURRENT STATUS" $MAGENTA
+    winston_say $VERBOSITY_NORMAL "CHECKING SYSTEM STATUS..." $BLUE
+    echo -e "\n${BOLD}System Status${NC}"
     echo "------------------------"
+    
+    # Check active interfaces
     echo -e "${BOLD}Active Interfaces:${NC}"
-    iwconfig 2>/dev/null | grep -B 1 "Mode:Monitor" | awk {'print $1'} | grep -v "^$"
+    echo "------------------------"
+    iwconfig 2>/dev/null | while IFS= read -r line; do
+        if [[ $line =~ ^[a-zA-Z0-9]+ ]]; then
+            interface=$(echo "$line" | awk '{print $1}')
+            mode=$(echo "$line" | grep -o "Mode:[^ ]*" | cut -d: -f2)
+            if [ ! -z "$mode" ]; then
+                echo -e "${GREEN}$interface${NC} ($mode)"
+            fi
+        fi
+    done
     echo ""
-    echo -e "${BOLD}Active Screens:${NC}"
-    screen -ls | grep -E "capture|deauth"
+    
+    # Check active screens
+    echo -e "${BOLD}Active Sessions:${NC}"
+    echo "------------------------"
+    if screen -ls | grep -q "capture\|deauth\|crack"; then
+        screen -ls | grep -E "capture|deauth|crack" | while read -r line; do
+            if [[ $line =~ (capture|deauth|crack) ]]; then
+                session=$(echo "$line" | awk '{print $1}')
+                status=$(echo "$line" | grep -o "Attached\|Detached")
+                echo -e "${GREEN}$session${NC} ($status)"
+            fi
+        done
+    else
+        echo "No active sessions"
+    fi
     echo ""
+    
+    # Check recent handshakes
     echo -e "${BOLD}Recent Handshakes:${NC}"
-    /winston/scripts/password_manager.sh list | tail -n 5
+    echo "------------------------"
+    /winston/scripts/password_manager.sh list | tail -n 5 | while IFS='|' read -r timestamp network bssid password; do
+        if [ ! -z "$network" ]; then
+            echo -e "${GREEN}$network${NC} ($timestamp)"
+        fi
+    done
     echo "------------------------"
 }
 
 # Function to show command history
 show_history() {
-    winston_say $VERBOSITY_NORMAL "COMMAND HISTORY" $MAGENTA
+    winston_say $VERBOSITY_NORMAL "SHOWING COMMAND HISTORY..." $BLUE
+    echo -e "\n${BOLD}Recent Commands${NC}"
     echo "------------------------"
-    history | tail -n 20
+    echo -e "${BOLD}#${NC} | ${BOLD}Command${NC}"
+    echo "------------------------"
+    history | tail -n 20 | while read -r line; do
+        if [[ $line =~ ^[[:space:]]*[0-9]+[[:space:]]+(.+)$ ]]; then
+            cmd="${BASH_REMATCH[1]}"
+            echo -e "${GREEN}$cmd${NC}"
+        fi
+    done
     echo "------------------------"
 }
 
@@ -285,9 +535,18 @@ set_verbosity() {
     local level=$1
     if [[ $level =~ ^[0-3]$ ]]; then
         CURRENT_VERBOSITY=$level
-        winston_say $VERBOSITY_NORMAL "VERBOSITY LEVEL SET TO $level" $GREEN
+        echo -e "\n${BOLD}Verbosity Level${NC}"
+        echo "------------------------"
+        case $level in
+            0) echo -e "Level ${GREEN}$level${NC}: Quiet mode (minimal output)" ;;
+            1) echo -e "Level ${GREEN}$level${NC}: Normal mode (default)" ;;
+            2) echo -e "Level ${GREEN}$level${NC}: Verbose mode (detailed output)" ;;
+            3) echo -e "Level ${GREEN}$level${NC}: Debug mode (all output)" ;;
+        esac
+        echo "------------------------"
+        log_event "INFO" "Verbosity level set to $level"
     else
-        winston_say $VERBOSITY_NORMAL "INVALID VERBOSITY LEVEL. USE 0-3." $RED
+        handle_error "INVALID VERBOSITY LEVEL. USE 0-3."
     fi
 }
 
@@ -448,8 +707,7 @@ complete -F _winston_complete winston
 trap cleanup_and_exit SIGINT SIGTERM
 
 # Main authentication loop
-while true; 
-do
+while true; do
     clear
     echo "WINSTON: WELCOME TO WIFI HOUND"
     echo "1. Login"
@@ -466,6 +724,8 @@ do
         
         if check_authorization "$username" "$password"; then
             echo "WINSTON: WELCOME."
+            # Record session start time
+            date +%s > "/tmp/winston_session_start"
             clear
             break
         fi
@@ -475,15 +735,28 @@ do
     fi
 done
 
+# Setup history navigation
+setup_history_navigation
+
 # Create necessary directories
-if ! ls /winston/kenel; then
+if ! ls /winston/kenel &>/dev/null; then
     sudo mkdir -p /winston/kenel
+    chmod 700 /winston/kenel
 fi
 
 # Main command loop
 while true; do
+    # Check session timeout
+    check_session_timeout
+    
+    # Update session timestamp
+    date +%s > "/tmp/winston_session_start"
+    
     echo -ne "${BOLD}winston> ${NC}"
     read -e cmd args
+    
+    # Log command
+    log_event "DEBUG" "Command executed: $cmd $args"
     
     case $cmd in
         "help")
@@ -498,7 +771,7 @@ while true; do
             elif [ ! -z "$args" ]; then
                 scan_networks "$interface" "specific" "$args"
             else
-                winston_say $VERBOSITY_NORMAL "USAGE: scan [all|target]" $RED
+                handle_error "USAGE: scan [all|target]"
             fi
             ;;
         "interfaces")
@@ -512,7 +785,7 @@ while true; do
                 echo "name: $args" > /winston/kenel/network_settings
                 start_capture_screen
             else
-                winston_say $VERBOSITY_NORMAL "USAGE: capture <network>" $RED
+                handle_error "USAGE: capture <network>"
             fi
             ;;
         "deauth")
@@ -520,7 +793,7 @@ while true; do
                 echo "name: $args" > /winston/kenel/network_settings
                 start_deauth_screen
             else
-                winston_say $VERBOSITY_NORMAL "USAGE: deauth <network>" $RED
+                handle_error "USAGE: deauth <network>"
             fi
             ;;
         "handshakes")
@@ -530,7 +803,7 @@ while true; do
             if [ ! -z "$args" ]; then
                 crack_handshake "$args"
             else
-                winston_say $VERBOSITY_NORMAL "USAGE: crack <handshake>" $RED
+                handle_error "USAGE: crack <handshake>"
             fi
             ;;
         "wordlist")
@@ -551,43 +824,53 @@ while true; do
         "exit")
             cleanup_and_exit
             ;;
+        "stop")
+            stop_scan
+            ;;
         "")
             continue
             ;;
         *)
-            winston_say $VERBOSITY_NORMAL "UNKNOWN COMMAND. TYPE 'help' FOR AVAILABLE COMMANDS" $RED
+            handle_error "UNKNOWN COMMAND. TYPE 'help' FOR AVAILABLE COMMANDS"
             ;;
     esac
 done
 
-# Function to show captured handshakes
-show_handshakes() {
-    winston_say 1 "SHOWING CAPTURED HANDSHAKES..." $BLUE
-    /winston/scripts/password_manager.sh list
-}
-
 # Function to crack a handshake
 crack_handshake() {
     if [ -z "$1" ]; then
-        winston_say 1 "PLEASE SPECIFY A HANDSHAKE FILE" $RED
-        winston_say 1 "USAGE: crack <handshake_file>" $YELLOW
+        handle_error "PLEASE SPECIFY A HANDSHAKE FILE"
         return 1
     fi
     
-    winston_say 1 "ATTEMPTING TO CRACK HANDSHAKE..." $BLUE
+    winston_say $VERBOSITY_NORMAL "PREPARING TO CRACK HANDSHAKE..." $BLUE
+    echo -e "\n${BOLD}Cracking Session${NC}"
+    echo "------------------------"
     
     # Get wordlist from user
+    echo -e "${BOLD}Step 1:${NC} Selecting wordlist"
     wordlist=$(/winston/scripts/select_wordlist.sh)
     
     if [ "$wordlist" = "none" ]; then
-        winston_say 1 "CRACKING ATTEMPT CANCELLED" $YELLOW
+        winston_say $VERBOSITY_NORMAL "CRACKING ATTEMPT CANCELLED" $YELLOW
         return 1
     fi
     
+    echo -e "${BOLD}Step 2:${NC} Starting cracking process"
     # Start cracking in a screen session
     screen -dmS crack aircrack-ng -w "$wordlist" "$1"
     
-    winston_say 1 "CRACKING STARTED IN SCREEN SESSION 'crack'" $GREEN
-    winston_say 1 "TO VIEW PROGRESS: screen -r crack" $YELLOW
-    winston_say 1 "TO DETACH FROM SCREEN: Ctrl+A, D" $YELLOW
+    # Wait a moment and check if screen started
+    sleep 2
+    if screen -ls | grep -q "crack"; then
+        echo -e "${BOLD}Status:${NC} ${GREEN}Running${NC}"
+        echo -e "${BOLD}Screen:${NC} crack"
+        echo -e "${BOLD}To view:${NC} screen -r crack"
+        echo -e "${BOLD}To detach:${NC} Ctrl+A, D"
+        echo "------------------------"
+        log_event "INFO" "Started cracking session for $1"
+    else
+        handle_error "Failed to start cracking session"
+        return 1
+    fi
 }
