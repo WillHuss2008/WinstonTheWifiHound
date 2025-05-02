@@ -35,15 +35,106 @@ set -o history
 declare -a WINSTON_HISTORY
 WINSTON_HISTORY_INDEX=0
 
-# Function to add command to history
-add_to_history() {
-    local cmd="$1"
-    if [ ! -z "$cmd" ]; then
-        WINSTON_HISTORY+=("$cmd")
-        WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
-        # Save to history file
-        echo "$cmd" >> "$HISTFILE"
+# Command completion arrays
+declare -a WINSTON_COMMANDS=(
+    "help" "scan" "interfaces" "monitor" "managed" "capture" "deauth" 
+    "handshakes" "crack" "wordlist" "status" "history" "verbose" 
+    "clear" "exit" "docs" "stop"
+)
+
+# Function to get available interfaces
+get_interfaces() {
+    iwconfig 2>/dev/null | grep -B 1 "Mode:" | awk '{print $1}' | grep -v "^$"
+}
+
+# Function to get available networks
+get_networks() {
+    if [ -f "/winston/kenel/airodump-ng-01.csv" ]; then
+        cat "/winston/kenel/airodump-ng-01.csv" | awk -F',' '{print $14}' | grep -v "ESSID" | grep -v "^$"
     fi
+}
+
+# Function to get available handshakes
+get_handshakes() {
+    if [ -f "/winston/kenel/handshakes.txt" ]; then
+        cat "/winston/kenel/handshakes.txt" | awk -F'|' '{print $2}'
+    fi
+}
+
+# Function to get available wordlists
+get_wordlists() {
+    ls /winston/kenel/wordlists/*.txt 2>/dev/null | xargs -n1 basename
+}
+
+# Function to handle command completion
+_winston_complete() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+    
+    case "${prev}" in
+        help|docs)
+            COMPREPLY=( $(compgen -W "${WINSTON_COMMANDS[*]}" -- ${cur}) )
+            return 0
+            ;;
+        scan)
+            COMPREPLY=( $(compgen -W "all $(get_networks)" -- ${cur}) )
+            return 0
+            ;;
+        monitor|managed)
+            COMPREPLY=( $(compgen -W "$(get_interfaces)" -- ${cur}) )
+            return 0
+            ;;
+        capture|deauth)
+            COMPREPLY=( $(compgen -W "$(get_networks)" -- ${cur}) )
+            return 0
+            ;;
+        crack)
+            COMPREPLY=( $(compgen -W "$(get_handshakes)" -- ${cur}) )
+            return 0
+            ;;
+        wordlist)
+            COMPREPLY=( $(compgen -W "$(get_wordlists)" -- ${cur}) )
+            return 0
+            ;;
+        verbose)
+            COMPREPLY=( $(compgen -W "0 1 2 3" -- ${cur}) )
+            return 0
+            ;;
+        *)
+            COMPREPLY=( $(compgen -W "${WINSTON_COMMANDS[*]}" -- ${cur}) )
+            return 0
+            ;;
+    esac
+}
+
+# Function to predict next command
+predict_next_command() {
+    local current_cmd="$1"
+    local last_cmd="$2"
+    
+    case "$last_cmd" in
+        "scan")
+            echo "monitor"
+            ;;
+        "monitor")
+            echo "scan"
+            ;;
+        "capture")
+            echo "deauth"
+            ;;
+        "deauth")
+            echo "handshakes"
+            ;;
+        "handshakes")
+            echo "crack"
+            ;;
+        *)
+            # Find most common next command from history
+            grep -A1 "$last_cmd" "$HISTFILE" 2>/dev/null | grep -v "$last_cmd" | sort | uniq -c | sort -nr | head -n1 | awk '{print $2}'
+            ;;
+    esac
 }
 
 # Function to handle command history navigation
@@ -63,6 +154,12 @@ setup_history_navigation() {
                 bind 'set show-all-if-ambiguous on'
                 bind 'set completion-ignore-case on'
                 bind 'set history-expand-line off'
+                bind 'set colored-completion-prefix on'
+                bind 'set colored-stats on'
+                bind 'set menu-complete-display-prefix on'
+                
+                # Enable tab completion
+                complete -F _winston_complete winston
                 
                 # Disable history expansion
                 set +H
@@ -77,12 +174,19 @@ setup_history_navigation() {
                     done < "$HISTFILE"
                     WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
                 fi
-                
-                # Custom history navigation
-                bind '"\e[A": "\C-a\C-k\C-u\C-y\C-e\C-b"' 2>/dev/null || true
-                bind '"\e[B": "\C-a\C-k\C-u\C-y\C-e\C-b"' 2>/dev/null || true
             fi
         fi
+    fi
+}
+
+# Function to add command to history
+add_to_history() {
+    local cmd="$1"
+    if [ ! -z "$cmd" ]; then
+        WINSTON_HISTORY+=("$cmd")
+        WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
+        # Save to history file
+        echo "$cmd" >> "$HISTFILE"
     fi
 }
 
@@ -752,61 +856,6 @@ show_docs() {
     fi
 }
 
-# Enhanced tab completion function
-_winston_complete() {
-    local cur prev opts
-    COMPREPLY=()
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="help scan interfaces monitor managed capture deauth handshakes crack wordlist status history verbose clear exit docs"
-
-    case "${prev}" in
-        help)
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            return 0
-            ;;
-        scan)
-            COMPREPLY=( $(compgen -W "all" -- ${cur}) )
-            return 0
-            ;;
-        monitor)
-            # Complete with interface names
-            COMPREPLY=( $(compgen -W "$(iwconfig 2>/dev/null | grep -B 1 'Mode:Monitor' | awk {'print $1'} | grep -v '^$')" -- ${cur}) )
-            return 0
-            ;;
-        managed)
-            # Complete with interface names
-            COMPREPLY=( $(compgen -W "$(iwconfig 2>/dev/null | grep -B 1 'Mode:Managed' | awk {'print $1'} | grep -v '^$')" -- ${cur}) )
-            return 0
-            ;;
-        capture|deauth)
-            # Complete with network names
-            COMPREPLY=( $(compgen -W "$(cat /winston/kenel/airodump-ng-01.csv 2>/dev/null | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" -- ${cur}) )
-            return 0
-            ;;
-        verbose)
-            COMPREPLY=( $(compgen -W "0 1 2 3" -- ${cur}) )
-            return 0
-            ;;
-        wordlist)
-            # Complete with .txt files in current directory
-            COMPREPLY=( $(compgen -f -X "!*.txt" -- ${cur}) )
-            return 0
-            ;;
-        docs)
-            COMPREPLY=( $(compgen -W "general commands interface security trouble" -- ${cur}) )
-            return 0
-            ;;
-        *)
-            COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-            return 0
-            ;;
-    esac
-}
-
-# Set up tab completion
-complete -F _winston_complete winston
-
 # Trap Ctrl+C and other termination signals
 trap cleanup_and_exit SIGINT SIGTERM
 
@@ -858,10 +907,39 @@ while true; do
     
     # Use read -e to enable readline features
     echo -ne "${BOLD}winston> ${NC}"
-    if ! read -e cmd args; then
-        # Handle EOF (Ctrl+D)
-        echo
-        cleanup_and_exit
+    
+    # Read command with timeout to check for arrow keys
+    if ! read -e -t 0.1 cmd args; then
+        # Check for arrow keys
+        read -sn 1 key
+        if [ "$key" = $'\x1b' ]; then
+            read -sn 1 key
+            if [ "$key" = "[" ]; then
+                read -sn 1 key
+                case "$key" in
+                    "A") # Up arrow
+                        if [ $WINSTON_HISTORY_INDEX -gt 0 ]; then
+                            WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX - 1))
+                            cmd="${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
+                            echo -ne "\r\033[K${BOLD}winston> ${NC}$cmd"
+                        fi
+                        ;;
+                    "B") # Down arrow
+                        if [ $WINSTON_HISTORY_INDEX -lt ${#WINSTON_HISTORY[@]} ]; then
+                            WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX + 1))
+                            if [ $WINSTON_HISTORY_INDEX -eq ${#WINSTON_HISTORY[@]} ]; then
+                                cmd=""
+                                echo -ne "\r\033[K${BOLD}winston> ${NC}"
+                            else
+                                cmd="${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
+                                echo -ne "\r\033[K${BOLD}winston> ${NC}$cmd"
+                            fi
+                        fi
+                        ;;
+                esac
+            fi
+        fi
+        continue
     fi
     
     # Skip empty commands
@@ -871,6 +949,14 @@ while true; do
     
     # Add command to history
     add_to_history "$cmd $args"
+    
+    # Predict next command
+    if [ $VERBOSITY_NORMAL -ge $CURRENT_VERBOSITY ]; then
+        next_cmd=$(predict_next_command "$cmd" "${WINSTON_HISTORY[${#WINSTON_HISTORY[@]}-2]}")
+        if [ ! -z "$next_cmd" ]; then
+            echo -e "${CYAN}Suggested next command: $next_cmd${NC}"
+        fi
+    fi
     
     # Log command
     log_event "DEBUG" "Command executed: $cmd $args"
