@@ -191,34 +191,6 @@ _winston_complete() {
     esac
 }
 
-# Function to predict next command
-predict_next_command() {
-    local current_cmd="$1"
-    local last_cmd="$2"
-    
-    case "$last_cmd" in
-        "scan")
-            echo "monitor"
-            ;;
-        "monitor")
-            echo "scan"
-            ;;
-        "capture")
-            echo "deauth"
-            ;;
-        "deauth")
-            echo "handshakes"
-            ;;
-        "handshakes")
-            echo "crack"
-            ;;
-        *)
-            # Find most common next command from history
-            grep -A1 "$last_cmd" "$HISTFILE" 2>/dev/null | grep -v "$last_cmd" | sort | uniq -c | sort -nr | head -n1 | awk '{print $2}'
-            ;;
-    esac
-}
-
 # Function to handle command history navigation
 setup_history_navigation() {
     # Check if readline is available
@@ -233,21 +205,21 @@ setup_history_navigation() {
             # In bash, enable readline features
             if [[ $- == *i* ]]; then
                 # Only set these if we're in an interactive shell
-                bind 'set show-all-if-ambiguous on' 2>/dev/null
-                bind 'set completion-ignore-case on' 2>/dev/null
-                bind 'set history-expand-line off' 2>/dev/null
-                bind 'set colored-completion-prefix on' 2>/dev/null
-                bind 'set colored-stats on' 2>/dev/null
-                bind 'set menu-complete-display-prefix on' 2>/dev/null
+                bind 'set show-all-if-ambiguous on'
+                bind 'set completion-ignore-case on'
+                bind 'set history-expand-line off'
+                bind 'set colored-completion-prefix on'
+                bind 'set colored-stats on'
+                bind 'set menu-complete-display-prefix on'
                 
                 # Enable tab completion
-                complete -F _winston_complete winston 2>/dev/null
+                complete -F _winston_complete winston
                 
                 # Disable history expansion
                 set +H
                 
                 # Set up the prompt
-                PS1="\e[1mwinston> \e[0m"
+                PS1="winston> "
                 
                 # Load history from file
                 if [ -f "$HISTFILE" ]; then
@@ -1005,7 +977,7 @@ while true; do
     date +%s > "/tmp/winston_session_start"
     
     # Read command with readline support
-    if ! read -e -p "${BOLD}winston> ${NC}" cmd args; then
+    if ! read -e -p "winston> " cmd args; then
         # Handle EOF (Ctrl+D)
         echo
         cleanup_and_exit
@@ -1018,14 +990,6 @@ while true; do
     
     # Add command to history
     add_to_history "$cmd $args"
-    
-    # Predict next command
-    if [ $VERBOSITY_NORMAL -ge $CURRENT_VERBOSITY ]; then
-        next_cmd=$(predict_next_command "$cmd" "${WINSTON_HISTORY[${#WINSTON_HISTORY[@]}-2]}")
-        if [ ! -z "$next_cmd" ]; then
-            echo -e "${CYAN}Suggested next command: $next_cmd${NC}"
-        fi
-    fi
     
     # Log command
     log_event "DEBUG" "Command executed: $cmd $args"
