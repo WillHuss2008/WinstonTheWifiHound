@@ -115,6 +115,128 @@ EOL
     winston_say 1 "DEFAULT WORDLIST CREATED" $GREEN
 }
 
+# Function to download and manage wordlists
+manage_wordlists() {
+    winston_say 1 "MANAGING WORDLISTS..." $BLUE
+    
+    # Create wordlists directory
+    mkdir -p /winston/kenel/wordlists
+    
+    # Function to download a wordlist
+    download_wordlist() {
+        local url=$1
+        local filename=$2
+        local description=$3
+        
+        winston_say 1 "DOWNLOADING $description..." $YELLOW
+        wget -q --show-progress "$url" -O "/winston/kenel/wordlists/$filename"
+        if [ $? -eq 0 ]; then
+            winston_say 1 "$description DOWNLOADED SUCCESSFULLY" $GREEN
+            chmod 600 "/winston/kenel/wordlists/$filename"
+            chown $SUDO_USER:$SUDO_USER "/winston/kenel/wordlists/$filename"
+            return 0
+        else
+            winston_say 1 "FAILED TO DOWNLOAD $description" $RED
+            return 1
+        fi
+    }
+    
+    # Function to check and update wordlist
+    check_and_update_wordlist() {
+        local filename=$1
+        local url=$2
+        local description=$3
+        
+        if [ -f "/winston/kenel/wordlists/$filename" ]; then
+            winston_say 1 "CHECKING $description FOR UPDATES..." $BLUE
+            # Get remote file size
+            remote_size=$(wget --spider "$url" 2>&1 | grep "Length:" | awk '{print $2}')
+            local_size=$(stat -f%z "/winston/kenel/wordlists/$filename" 2>/dev/null || stat -c%s "/winston/kenel/wordlists/$filename")
+            
+            if [ "$remote_size" != "$local_size" ]; then
+                winston_say 1 "UPDATING $description..." $YELLOW
+                download_wordlist "$url" "$filename" "$description"
+            else
+                winston_say 1 "$description IS UP TO DATE" $GREEN
+            fi
+        else
+            download_wordlist "$url" "$filename" "$description"
+        fi
+    }
+    
+    # Check for rockyou.txt in system
+    if [ -f "/usr/share/wordlists/rockyou.txt.gz" ]; then
+        winston_say 1 "FOUND ROCKYOU IN SYSTEM WORDLISTS" $GREEN
+        cp "/usr/share/wordlists/rockyou.txt.gz" "/winston/kenel/wordlists/"
+        gunzip "/winston/kenel/wordlists/rockyou.txt.gz"
+    else
+        # Download rockyou.txt
+        check_and_update_wordlist "rockyou.txt.gz" \
+            "https://github.com/praetorian-inc/Hob0Rules/raw/master/wordlists/rockyou.txt.gz" \
+            "ROCKYOU WORDLIST"
+        if [ -f "/winston/kenel/wordlists/rockyou.txt.gz" ]; then
+            gunzip "/winston/kenel/wordlists/rockyou.txt.gz"
+        fi
+    fi
+    
+    # Download additional wordlists
+    check_and_update_wordlist "darkc0de.lst" \
+        "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/darkc0de.txt" \
+        "DARKC0DE WORDLIST"
+    
+    check_and_update_wordlist "common-passwords.txt" \
+        "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt" \
+        "COMMON PASSWORDS WORDLIST"
+    
+    # Create a custom wordlist from all downloaded wordlists
+    winston_say 1 "CREATING COMBINED WORDLIST..." $BLUE
+    cat /winston/kenel/wordlists/*.txt 2>/dev/null | sort -u > /winston/kenel/combined_wordlist.txt
+    chmod 600 /winston/kenel/combined_wordlist.txt
+    chown $SUDO_USER:$SUDO_USER /winston/kenel/combined_wordlist.txt
+    
+    # Create a function to update wordlists
+    cat > /winston/scripts/update_wordlists.sh << 'EOL'
+#!/bin/bash
+# Function to update wordlists
+update_wordlists() {
+    echo "Updating wordlists..."
+    cd /winston/kenel/wordlists
+    
+    # Update rockyou
+    if [ -f "rockyou.txt.gz" ]; then
+        wget -q --show-progress "https://github.com/praetorian-inc/Hob0Rules/raw/master/wordlists/rockyou.txt.gz" -O rockyou.txt.gz.new
+        if [ $? -eq 0 ]; then
+            mv rockyou.txt.gz.new rockyou.txt.gz
+            gunzip -f rockyou.txt.gz
+        fi
+    fi
+    
+    # Update darkc0de
+    wget -q --show-progress "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/darkc0de.txt" -O darkc0de.lst.new
+    if [ $? -eq 0 ]; then
+        mv darkc0de.lst.new darkc0de.lst
+    fi
+    
+    # Update common passwords
+    wget -q --show-progress "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt" -O common-passwords.txt.new
+    if [ $? -eq 0 ]; then
+        mv common-passwords.txt.new common-passwords.txt
+    fi
+    
+    # Recreate combined wordlist
+    cat *.txt 2>/dev/null | sort -u > ../combined_wordlist.txt
+    
+    echo "Wordlists updated successfully!"
+}
+EOL
+    
+    chmod +x /winston/scripts/update_wordlists.sh
+    chown $SUDO_USER:$SUDO_USER /winston/scripts/update_wordlists.sh
+    
+    winston_say 1 "WORDLISTS SETUP COMPLETE" $GREEN
+    winston_say 1 "TO UPDATE WORDLISTS, RUN: /winston/scripts/update_wordlists.sh" $YELLOW
+}
+
 # Function to move scripts to secure location
 move_scripts() {
     winston_say 1 "MOVING SCRIPTS TO SECURE LOCATION..." $BLUE
@@ -198,6 +320,9 @@ cleanup_repository() {
     # Get current directory
     current_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
+    # Store the parent directory
+    parent_dir="$(dirname "$current_dir")"
+    
     # Remove all .sh files from repository
     rm -f "$current_dir"/*.sh
     
@@ -206,10 +331,9 @@ cleanup_repository() {
         rm -rf "$current_dir/.git"
     fi
     
-    # Remove the directory itself if it's empty
-    if [ -z "$(ls -A $current_dir)" ]; then
-        rmdir "$current_dir"
-    fi
+    # Remove the directory itself
+    cd "$parent_dir"
+    rm -rf "$current_dir"
     
     winston_say 1 "REPOSITORY CLEANED" $GREEN
 }
@@ -272,8 +396,8 @@ create_user
 # Set up directories
 setup_directories
 
-# Create default wordlist
-create_wordlist
+# Manage wordlists
+manage_wordlists
 
 # Move scripts to secure location
 move_scripts
