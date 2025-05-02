@@ -3,52 +3,110 @@
 # add password requirements later
 sudo rm /winston/kenel/*
 
+# Function to check if user is authorized
+check_authorization() {
+    local username="$1"
+    local password="$2"
+    
+    if ! ls /winston/$username &>/dev/null; then
+        echo "I'm sorry, this user doesn't exist on this device."
+        return 1
+    elif ls /winston/$username &>/dev/null; then
+        if [[ $(echo -n "$password" | sha256sum | awk {'print $1'}) = $(cat /winston/$username/user.profile | awk '/password/ {print $2}') ]]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Function to handle network scanning
+scan_networks() {
+    local interface="$1"
+    local mode="$2"
+    local target_network="$3"
+    
+    if [ "$mode" = "specific" ]; then
+        echo "WINSTON: SCANNING FOR SPECIFIC NETWORK: $target_network"
+        sudo airodump-ng $interface --essid "$target_network" -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
+    else
+        echo "WINSTON: SCANNING ALL NETWORKS IN RANGE"
+        sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
+    fi
+}
+
+# Function to handle password cracking
+crack_password() {
+    local handshake_file="$1"
+    local wordlist="/winston/kenel/wordlist.txt"
+    
+    if [ -f "$handshake_file" ]; then
+        echo "WINSTON: ATTEMPTING TO CRACK PASSWORD"
+        aircrack-ng -w "$wordlist" "$handshake_file"
+    else
+        echo "WINSTON: NO HANDSHAKE FILE FOUND"
+    fi
+}
+
+# Main authentication loop
 while true; 
 do
     clear
     echo "please enter your username and password"
     read -p "username: " username
-    if ! ls /winston/$username &>/dev/null; then
-        echo "I'm sorry, this user doesn't exist on this device."
-    elif ls /winston/$username &>/dev/null; then
-        read -sp "password: " password
-        if [[ $(echo -n "$password" | sha256sum | awk {'print $1'}) = $(cat /winston/$username/user.profile | awk '/password/ {print $2}') ]]; then
-            echo " "
-            echo "WINSTON: WELCOME."
-            clear
-            break
-        fi
+    read -sp "password: " password
+    echo ""
+    
+    if check_authorization "$username" "$password"; then
+        echo "WINSTON: WELCOME."
+        clear
+        break
     fi
 done
 
+# Kill any interfering processes
 processes="$(sudo airmon-ng check | sed -n '/Name/,$p' | awk {'print $2'} | grep -v Name | grep -v '^[[:space:]]*$')"
 num_processes=$(echo "$processes" | wc -l)
 
 if [[ $((num_processes)) -ne 0 ]]; then
     sudo airmon-ng check kill &>/dev/null
 fi
+
+# Interface selection
 if iwconfig 2>/dev/null | grep "Mode:Monitor"; then
     interface=$(iwconfig 2>/dev/null | grep -B 1 "Mode:Monitor" | awk {'print $1'} | head -n 1)
 else
     names=$(sudo airmon-ng | awk '/phy/ {print $4, $5}')
     interfaces=$(sudo airmon-ng | awk '/phy/ {print $2}')
     lines=$(echo "$interfaces" | wc -l)
-    echo "WINSTON: HERE ARE YOUR INTERFACE OPTIONS. PLEASE PICK WIRELESS INTERFACE THAT YOU'D LIKE TO USE TO SCAN FOR NETWORKS
-"
+    echo "WINSTON: HERE ARE YOUR INTERFACE OPTIONS. PLEASE PICK WIRELESS INTERFACE THAT YOU'D LIKE TO USE TO SCAN FOR NETWORKS"
+    echo ""
     for i in $(seq 1 $lines); do
         interface=$(echo "$interfaces" | sed -n ${i}p)
         name=$(echo "$names" | sed -n ${i}p)
         echo "$interface: $name"
     done
-    echo " "
+    echo ""
     read -p "$username: " option
     interface=$(echo "$interfaces" | grep $option)
 fi
+
+# Create necessary directories
 if ! ls /winston/kenel; then
-    sudo mkdir /winston/kenel
+    sudo mkdir -p /winston/kenel
 fi
 
-sudo airodump-ng $interface -w /winston/kenel/airodump-ng --write-interval 1 --output-format csv &>/dev/null &
+# Network scanning mode selection
+echo "WINSTON: SELECT SCANNING MODE"
+echo "[1] Scan all networks in range"
+echo "[2] Scan for specific network"
+read -p "$username: " scan_mode
+
+if [ "$scan_mode" = "2" ]; then
+    read -p "Enter target network name: " target_network
+    scan_networks "$interface" "specific" "$target_network"
+else
+    scan_networks "$interface" "range" ""
+fi
 
 through=1
 through=$(($through))
@@ -141,5 +199,15 @@ while true; do
         continue
     fi
 done
+
+# When a handshake is captured, store it
+if [ -f "/winston/kenel/psk-01.cap" ]; then
+    ./password_manager.sh store "$essid" "$bssid" "PENDING" "/winston/kenel/psk-01.cap"
+    echo "WINSTON: HANDSHAKE CAPTURED AND STORED"
+fi
+
+# Cleanup
+pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
+sudo kill -9 $pid &>/dev/null
 
 #begin solving problem with capture and deauth scripts
