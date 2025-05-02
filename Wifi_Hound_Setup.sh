@@ -188,52 +188,64 @@ manage_wordlists() {
         "https://raw.githubusercontent.com/danielmiessler/SecLists/master/Passwords/Common-Credentials/10-million-password-list-top-1000000.txt" \
         "COMMON PASSWORDS WORDLIST"
     
-    # Let user choose default wordlist
-    winston_say 1 "CHOOSE YOUR DEFAULT WORDLIST:" $MAGENTA
+    # Create wordlist selection script
+    cat > /winston/scripts/select_wordlist.sh << 'EOL'
+#!/bin/bash
+
+# Function to show wordlist selection menu
+select_wordlist() {
+    echo "Available wordlists:"
     echo "1) rockyou.txt (14 million passwords)"
     echo "2) darkc0de.lst (1.5 million passwords)"
     echo "3) common-passwords.txt (1 million most common passwords)"
     echo "4) Use custom wordlist"
+    echo "5) None (skip wordlist)"
     
     while true; do
-        read -p "Enter your choice (1-4): " choice
+        read -p "Enter your choice (1-5): " choice
         case $choice in
             1)
-                cp "/winston/kenel/wordlists/rockyou.txt" "/winston/kenel/wordlist.txt"
-                winston_say 1 "SET ROCKYOU.TXT AS DEFAULT WORDLIST" $GREEN
+                echo "/winston/kenel/wordlists/rockyou.txt"
                 break
                 ;;
             2)
-                cp "/winston/kenel/wordlists/darkc0de.lst" "/winston/kenel/wordlist.txt"
-                winston_say 1 "SET DARKC0DE.LST AS DEFAULT WORDLIST" $GREEN
+                echo "/winston/kenel/wordlists/darkc0de.lst"
                 break
                 ;;
             3)
-                cp "/winston/kenel/wordlists/common-passwords.txt" "/winston/kenel/wordlist.txt"
-                winston_say 1 "SET COMMON-PASSWORDS.TXT AS DEFAULT WORDLIST" $GREEN
+                echo "/winston/kenel/wordlists/common-passwords.txt"
                 break
                 ;;
             4)
                 read -p "Enter path to your custom wordlist: " custom_wordlist
                 if [ -f "$custom_wordlist" ]; then
-                    cp "$custom_wordlist" "/winston/kenel/wordlist.txt"
-                    winston_say 1 "SET CUSTOM WORDLIST AS DEFAULT" $GREEN
+                    echo "$custom_wordlist"
                     break
                 else
-                    winston_say 1 "FILE NOT FOUND. PLEASE TRY AGAIN." $RED
+                    echo "File not found. Please try again." >&2
                 fi
                 ;;
+            5)
+                echo "none"
+                break
+                ;;
             *)
-                winston_say 1 "INVALID CHOICE. PLEASE TRY AGAIN." $RED
+                echo "Invalid choice. Please try again." >&2
                 ;;
         esac
     done
+}
+
+# If script is run directly, show selection menu
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    select_wordlist
+fi
+EOL
     
-    # Set permissions for default wordlist
-    chmod 600 "/winston/kenel/wordlist.txt"
-    chown $SUDO_USER:$SUDO_USER "/winston/kenel/wordlist.txt"
+    chmod +x /winston/scripts/select_wordlist.sh
+    chown $SUDO_USER:$SUDO_USER /winston/scripts/select_wordlist.sh
     
-    # Create a function to update wordlists
+    # Create update script
     cat > /winston/scripts/update_wordlists.sh << 'EOL'
 #!/bin/bash
 # Function to update wordlists
@@ -263,64 +275,20 @@ update_wordlists() {
     fi
     
     echo "Wordlists updated successfully!"
-    echo "To change your default wordlist, run: /winston/scripts/change_wordlist.sh"
 }
 
-# Function to change default wordlist
-change_wordlist() {
-    echo "Available wordlists:"
-    echo "1) rockyou.txt (14 million passwords)"
-    echo "2) darkc0de.lst (1.5 million passwords)"
-    echo "3) common-passwords.txt (1 million most common passwords)"
-    echo "4) Use custom wordlist"
-    
-    read -p "Enter your choice (1-4): " choice
-    case $choice in
-        1)
-            cp "/winston/kenel/wordlists/rockyou.txt" "/winston/kenel/wordlist.txt"
-            echo "Set rockyou.txt as default wordlist"
-            ;;
-        2)
-            cp "/winston/kenel/wordlists/darkc0de.lst" "/winston/kenel/wordlist.txt"
-            echo "Set darkc0de.lst as default wordlist"
-            ;;
-        3)
-            cp "/winston/kenel/wordlists/common-passwords.txt" "/winston/kenel/wordlist.txt"
-            echo "Set common-passwords.txt as default wordlist"
-            ;;
-        4)
-            read -p "Enter path to your custom wordlist: " custom_wordlist
-            if [ -f "$custom_wordlist" ]; then
-                cp "$custom_wordlist" "/winston/kenel/wordlist.txt"
-                echo "Set custom wordlist as default"
-            else
-                echo "File not found. Please try again."
-                exit 1
-            fi
-            ;;
-        *)
-            echo "Invalid choice. Please try again."
-            exit 1
-            ;;
-    esac
-    
-    chmod 600 "/winston/kenel/wordlist.txt"
-    chown $SUDO_USER:$SUDO_USER "/winston/kenel/wordlist.txt"
-    echo "Default wordlist changed successfully!"
-}
-
-# Create change_wordlist script
-cat > /winston/scripts/change_wordlist.sh << 'EOL'
-#!/bin/bash
-change_wordlist
+# If script is run directly, update wordlists
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    update_wordlists
+fi
 EOL
-
-chmod +x /winston/scripts/change_wordlist.sh
-chown $SUDO_USER:$SUDO_USER /winston/scripts/change_wordlist.sh
-
-winston_say 1 "WORDLISTS SETUP COMPLETE" $GREEN
-winston_say 1 "TO UPDATE WORDLISTS, RUN: /winston/scripts/update_wordlists.sh" $YELLOW
-winston_say 1 "TO CHANGE DEFAULT WORDLIST, RUN: /winston/scripts/change_wordlist.sh" $YELLOW
+    
+    chmod +x /winston/scripts/update_wordlists.sh
+    chown $SUDO_USER:$SUDO_USER /winston/scripts/update_wordlists.sh
+    
+    winston_say 1 "WORDLISTS SETUP COMPLETE" $GREEN
+    winston_say 1 "TO UPDATE WORDLISTS, RUN: /winston/scripts/update_wordlists.sh" $YELLOW
+    winston_say 1 "WORDLIST SELECTION WILL BE AVAILABLE DURING CRACKING" $YELLOW
 }
 
 # Function to move scripts to secure location
