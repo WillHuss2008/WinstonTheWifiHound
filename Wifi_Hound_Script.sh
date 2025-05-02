@@ -155,12 +155,18 @@ setup_history_navigation() {
                 # Only set these if we're in an interactive shell
                 bind 'set show-all-if-ambiguous on'
                 bind 'set completion-ignore-case on'
-                bind 'set history-expand-line off'  # Changed from on to off to fix the error
+                bind 'set history-expand-line off'
+                
+                # Disable history expansion
+                set +H
+                
+                # Set up the prompt
+                PS1="\e[1mwinston> \e[0m"
                 
                 # Enable arrow key navigation if available
                 if [[ -t 1 ]]; then
-                    bind '"\e[A": history-search-backward' 2>/dev/null || true
-                    bind '"\e[B": history-search-forward' 2>/dev/null || true
+                    bind '"\e[A": previous-history' 2>/dev/null || true
+                    bind '"\e[B": next-history' 2>/dev/null || true
                 fi
             fi
         fi
@@ -774,6 +780,14 @@ while true; do
         cleanup_and_exit
     fi
     
+    # Skip empty commands
+    if [ -z "$cmd" ]; then
+        continue
+    fi
+    
+    # Add command to history
+    history -s "$cmd $args"
+    
     # Log command
     log_event "DEBUG" "Command executed: $cmd $args"
     
@@ -845,9 +859,6 @@ while true; do
             ;;
         "stop")
             stop_scan
-            ;;
-        "")
-            continue
             ;;
         *)
             handle_error "UNKNOWN COMMAND. TYPE 'help' FOR AVAILABLE COMMANDS"
