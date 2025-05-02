@@ -31,6 +31,81 @@ HISTFILESIZE=2000
 HISTCONTROL=ignoreboth:erasedups
 set -o history
 
+# Custom history array and index
+declare -a WINSTON_HISTORY
+WINSTON_HISTORY_INDEX=0
+
+# Function to add command to history
+add_to_history() {
+    local cmd="$1"
+    if [ ! -z "$cmd" ]; then
+        WINSTON_HISTORY+=("$cmd")
+        WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
+        # Save to history file
+        echo "$cmd" >> "$HISTFILE"
+    fi
+}
+
+# Function to handle command history navigation
+setup_history_navigation() {
+    # Check if readline is available
+    if [ -t 1 ]; then
+        # Enable readline if we're in an interactive shell
+        if [ -z "$BASH" ]; then
+            # If not in bash, try to use readline
+            if command -v rlwrap >/dev/null 2>&1; then
+                exec rlwrap -a -c -f ~/.winston_completion "$0" "$@"
+            fi
+        else
+            # In bash, enable readline features
+            if [[ $- == *i* ]]; then
+                # Only set these if we're in an interactive shell
+                bind 'set show-all-if-ambiguous on'
+                bind 'set completion-ignore-case on'
+                bind 'set history-expand-line off'
+                
+                # Disable history expansion
+                set +H
+                
+                # Set up the prompt
+                PS1="\e[1mwinston> \e[0m"
+                
+                # Load history from file
+                if [ -f "$HISTFILE" ]; then
+                    while IFS= read -r line; do
+                        WINSTON_HISTORY+=("$line")
+                    done < "$HISTFILE"
+                    WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
+                fi
+                
+                # Custom history navigation
+                bind '"\e[A": "\C-a\C-k\C-u\C-y\C-e\C-b"' 2>/dev/null || true
+                bind '"\e[B": "\C-a\C-k\C-u\C-y\C-e\C-b"' 2>/dev/null || true
+            fi
+        fi
+    fi
+}
+
+# Function to handle up arrow
+handle_up_arrow() {
+    if [ $WINSTON_HISTORY_INDEX -gt 0 ]; then
+        WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX - 1))
+        echo -ne "\r\033[K${BOLD}winston> ${NC}${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
+    fi
+}
+
+# Function to handle down arrow
+handle_down_arrow() {
+    if [ $WINSTON_HISTORY_INDEX -lt ${#WINSTON_HISTORY[@]} ]; then
+        WINSTON_HISTORY_INDEX=$((WINSTON_HISTORY_INDEX + 1))
+        if [ $WINSTON_HISTORY_INDEX -eq ${#WINSTON_HISTORY[@]} ]; then
+            echo -ne "\r\033[K${BOLD}winston> ${NC}"
+        else
+            echo -ne "\r\033[K${BOLD}winston> ${NC}${WINSTON_HISTORY[$WINSTON_HISTORY_INDEX]}"
+        fi
+    fi
+}
+
 # Function to log events
 log_event() {
     local level="$1"
@@ -135,40 +210,6 @@ check_session_timeout() {
             winston_say $VERBOSITY_NORMAL "SESSION TIMEOUT. PLEASE LOGIN AGAIN." $YELLOW
             log_event "WARNING" "Session timeout for user: $username"
             cleanup_and_exit
-        fi
-    fi
-}
-
-# Function to handle command history navigation
-setup_history_navigation() {
-    # Check if readline is available
-    if [ -t 1 ]; then
-        # Enable readline if we're in an interactive shell
-        if [ -z "$BASH" ]; then
-            # If not in bash, try to use readline
-            if command -v rlwrap >/dev/null 2>&1; then
-                exec rlwrap -a -c -f ~/.winston_completion "$0" "$@"
-            fi
-        else
-            # In bash, enable readline features
-            if [[ $- == *i* ]]; then
-                # Only set these if we're in an interactive shell
-                bind 'set show-all-if-ambiguous on'
-                bind 'set completion-ignore-case on'
-                bind 'set history-expand-line off'
-                
-                # Disable history expansion
-                set +H
-                
-                # Set up the prompt
-                PS1="\e[1mwinston> \e[0m"
-                
-                # Enable arrow key navigation if available
-                if [[ -t 1 ]]; then
-                    bind '"\e[A": previous-history' 2>/dev/null || true
-                    bind '"\e[B": next-history' 2>/dev/null || true
-                fi
-            fi
         fi
     fi
 }
@@ -311,6 +352,36 @@ set_monitor_mode() {
     fi
 }
 
+# Function to handle managed mode
+set_managed_mode() {
+    local interface="$1"
+    if [ -z "$interface" ]; then
+        handle_error "PLEASE SPECIFY AN INTERFACE"
+        return 1
+    fi
+    
+    winston_say $VERBOSITY_NORMAL "CONFIGURING $interface..." $BLUE
+    echo -e "\n${BOLD}Step 1:${NC} Checking interface status"
+    
+    # Check if interface exists
+    if ! iwconfig 2>/dev/null | grep -q "^$interface"; then
+        handle_error "Interface $interface not found"
+        return 1
+    fi
+    
+    echo -e "${BOLD}Step 2:${NC} Stopping interfering processes"
+    sudo airmon-ng check kill &>/dev/null
+    
+    echo -e "${BOLD}Step 3:${NC} Enabling managed mode"
+    if sudo airmon-ng stop "$interface" &>/dev/null; then
+        echo -e "${GREEN}Successfully enabled managed mode on $interface${NC}"
+        log_event "INFO" "Enabled managed mode on $interface"
+    else
+        handle_error "Failed to enable managed mode on $interface"
+        return 1
+    fi
+}
+
 # Function to start capture screen
 start_capture_screen() {
     if screen -ls | grep -q "capture"; then
@@ -382,6 +453,7 @@ show_help() {
         echo -e "${BOLD}scan [all|target]       ${NC}- Scan for networks (all or specific target)"
         echo -e "${BOLD}interfaces              ${NC}- List available wireless interfaces"
         echo -e "${BOLD}monitor <interface>     ${NC}- Put interface in monitor mode"
+        echo -e "${BOLD}managed <interface>     ${NC}- Put interface in managed mode"
         echo -e "${BOLD}capture <network>       ${NC}- Start capturing packets for a network"
         echo -e "${BOLD}deauth <network>        ${NC}- Start deauthentication attack"
         echo -e "${BOLD}handshakes              ${NC}- List captured handshakes"
@@ -419,6 +491,13 @@ show_help() {
                 echo -e "${BOLD}Usage:${NC} monitor <interface>"
                 echo -e "${BOLD}Puts the specified interface into monitor mode${NC}"
                 echo -e "${BOLD}Example:${NC} monitor wlan0"
+                ;;
+            "managed")
+                winston_say $VERBOSITY_NORMAL "MANAGED COMMAND HELP" $MAGENTA
+                echo "------------------------"
+                echo -e "${BOLD}Usage:${NC} managed <interface>"
+                echo -e "${BOLD}Puts the specified interface into managed mode${NC}"
+                echo -e "${BOLD}Example:${NC} managed wlan0"
                 ;;
             "capture")
                 winston_say $VERBOSITY_NORMAL "CAPTURE COMMAND HELP" $MAGENTA
@@ -679,7 +758,7 @@ _winston_complete() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    opts="help scan interfaces monitor capture deauth handshakes crack wordlist status history verbose clear exit docs"
+    opts="help scan interfaces monitor managed capture deauth handshakes crack wordlist status history verbose clear exit docs"
 
     case "${prev}" in
         help)
@@ -693,6 +772,11 @@ _winston_complete() {
         monitor)
             # Complete with interface names
             COMPREPLY=( $(compgen -W "$(iwconfig 2>/dev/null | grep -B 1 'Mode:Monitor' | awk {'print $1'} | grep -v '^$')" -- ${cur}) )
+            return 0
+            ;;
+        managed)
+            # Complete with interface names
+            COMPREPLY=( $(compgen -W "$(iwconfig 2>/dev/null | grep -B 1 'Mode:Managed' | awk {'print $1'} | grep -v '^$')" -- ${cur}) )
             return 0
             ;;
         capture|deauth)
@@ -786,7 +870,7 @@ while true; do
     fi
     
     # Add command to history
-    history -s "$cmd $args"
+    add_to_history "$cmd $args"
     
     # Log command
     log_event "DEBUG" "Command executed: $cmd $args"
@@ -812,6 +896,9 @@ while true; do
             ;;
         "monitor")
             set_monitor_mode $args
+            ;;
+        "managed")
+            set_managed_mode $args
             ;;
         "capture")
             if [ ! -z "$args" ]; then
