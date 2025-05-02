@@ -56,6 +56,74 @@ scan_running=false
 capture_running=false
 deauth_running=false
 
+# Function to create necessary directories
+create_directories() {
+    local dirs=("$SCRIPTS_DIR" "$KENEL_DIR" "$WORDLIST_DIR" "$HANDSHAKE_DIR" "$LOG_DIR")
+    for dir in "${dirs[@]}"; do
+        if [ ! -d "$dir" ]; then
+            sudo mkdir -p "$dir" 2>/dev/null || {
+                echo -e "${RED}Failed to create directory: $dir${NC}"
+                return 1
+            }
+            sudo chmod 700 "$dir" 2>/dev/null || {
+                echo -e "${RED}Failed to set permissions for: $dir${NC}"
+                return 1
+            }
+        fi
+    done
+    return 0
+}
+
+# Function to check if a command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Function to check dependencies
+check_dependencies() {
+    local missing_deps=()
+    local required_commands=("aircrack-ng" "screen" "iwconfig" "airmon-ng")
+    
+    for cmd in "${required_commands[@]}"; do
+        if ! command_exists "$cmd"; then
+            missing_deps+=("$cmd")
+        fi
+    done
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        echo -e "${RED}Missing required dependencies: ${missing_deps[*]}${NC}"
+        return 1
+    fi
+    return 0
+}
+
+# Function to initialize the environment
+initialize_environment() {
+    # Create directories
+    create_directories
+    
+    # Check dependencies
+    if ! check_dependencies; then
+        handle_error "Failed to initialize environment"
+        return 1
+    fi
+    
+    # Set up history
+    if [ ! -f "$HISTFILE" ]; then
+        touch "$HISTFILE"
+        chmod 600 "$HISTFILE"
+    fi
+    
+    # Set up log file
+    if [ ! -f "$LOG_FILE" ]; then
+        touch "$LOG_FILE"
+        chmod 600 "$LOG_FILE"
+        log_event "INFO" "Log file initialized"
+    fi
+    
+    return 0
+}
+
 # Function to get available interfaces
 get_interfaces() {
     iwconfig 2>/dev/null | grep -B 1 "Mode:" | awk '{print $1}' | grep -v "^$"
@@ -165,15 +233,15 @@ setup_history_navigation() {
             # In bash, enable readline features
             if [[ $- == *i* ]]; then
                 # Only set these if we're in an interactive shell
-                bind 'set show-all-if-ambiguous on'
-                bind 'set completion-ignore-case on'
-                bind 'set history-expand-line off'
-                bind 'set colored-completion-prefix on'
-                bind 'set colored-stats on'
-                bind 'set menu-complete-display-prefix on'
+                bind 'set show-all-if-ambiguous on' 2>/dev/null
+                bind 'set completion-ignore-case on' 2>/dev/null
+                bind 'set history-expand-line off' 2>/dev/null
+                bind 'set colored-completion-prefix on' 2>/dev/null
+                bind 'set colored-stats on' 2>/dev/null
+                bind 'set menu-complete-display-prefix on' 2>/dev/null
                 
                 # Enable tab completion
-                complete -F _winston_complete winston
+                complete -F _winston_complete winston 2>/dev/null
                 
                 # Disable history expansion
                 set +H
@@ -200,7 +268,9 @@ add_to_history() {
         WINSTON_HISTORY+=("$cmd")
         WINSTON_HISTORY_INDEX=${#WINSTON_HISTORY[@]}
         # Save to history file
-        echo "$cmd" >> "$HISTFILE"
+        echo "$cmd" >> "$HISTFILE" 2>/dev/null || {
+            echo -e "${RED}Failed to write to history file${NC}"
+        }
     fi
 }
 
@@ -229,6 +299,19 @@ log_event() {
     local level="$1"
     local message="$2"
     local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
+    
+    # Ensure log directory exists
+    if [ ! -d "$LOG_DIR" ]; then
+        mkdir -p "$LOG_DIR"
+        chmod 700 "$LOG_DIR"
+    fi
+    
+    # Ensure log file exists
+    if [ ! -f "$LOG_FILE" ]; then
+        touch "$LOG_FILE"
+        chmod 600 "$LOG_FILE"
+    fi
+    
     echo "[$timestamp] [$level] $message" >> "$LOG_FILE"
 }
 
@@ -262,25 +345,25 @@ cleanup_and_exit() {
     winston_say $VERBOSITY_NORMAL "CLEANING UP..." $YELLOW
     
     # Kill any running aircrack processes
-    pid=$(pstree -p | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
+    pid=$(pstree -p 2>/dev/null | grep airodump-ng | grep -v capture | grep -v deauth | grep -oe '[0-9]\+')
     if [ ! -z "$pid" ]; then
         sudo kill -9 $pid &>/dev/null
         winston_say $VERBOSITY_DEBUG "Killed process $pid" $CYAN
     fi
     
     # Kill any screen sessions
-    if screen -ls | grep -q "capture"; then
-        screen -X -S capture quit
+    if screen -ls 2>/dev/null | grep -q "capture"; then
+        screen -X -S capture quit 2>/dev/null
         winston_say $VERBOSITY_DEBUG "Closed capture screen" $CYAN
     fi
-    if screen -ls | grep -q "deauth"; then
-        screen -X -S deauth quit
+    if screen -ls 2>/dev/null | grep -q "deauth"; then
+        screen -X -S deauth quit 2>/dev/null
         winston_say $VERBOSITY_DEBUG "Closed deauth screen" $CYAN
     fi
     
     # Clear sensitive data
     if [ -f "$ENCRYPTION_KEY_FILE" ]; then
-        shred -u "$ENCRYPTION_KEY_FILE"
+        shred -u "$ENCRYPTION_KEY_FILE" 2>/dev/null
     fi
     
     winston_say $VERBOSITY_NORMAL "GOODBYE!" $GREEN
@@ -877,6 +960,12 @@ trap cleanup_and_exit SIGINT SIGTERM
 
 # Main authentication loop
 while true; do
+    # Initialize environment first
+    if ! initialize_environment; then
+        echo "Failed to initialize environment. Exiting..."
+        exit 1
+    fi
+    
     clear
     echo "WINSTON: WELCOME TO WIFI HOUND"
     echo "1. Login"
@@ -906,12 +995,6 @@ done
 
 # Setup history navigation after successful login
 setup_history_navigation
-
-# Create necessary directories
-if ! ls /winston/kenel &>/dev/null; then
-    sudo mkdir -p /winston/kenel
-    chmod 700 /winston/kenel
-fi
 
 # Main command loop
 while true; do
