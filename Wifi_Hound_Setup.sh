@@ -308,6 +308,13 @@ move_scripts() {
     chmod 700 /winston/scripts/*.sh
     chown -R $SUDO_USER:$SUDO_USER /winston/scripts
     
+    # Verify password_manager.sh exists
+    if [ ! -f "/winston/scripts/password_manager.sh" ]; then
+        winston_say 1 "ERROR: password_manager.sh NOT FOUND" $RED
+        winston_say 1 "PLEASE ENSURE ALL SCRIPTS ARE PRESENT" $YELLOW
+        exit 1
+    fi
+    
     winston_say 1 "SCRIPTS MOVED TO /winston/scripts" $GREEN
 }
 

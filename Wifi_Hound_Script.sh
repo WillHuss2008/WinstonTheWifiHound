@@ -237,7 +237,7 @@ set_monitor_mode() {
 list_handshakes() {
     winston_say $VERBOSITY_NORMAL "CAPTURED HANDSHAKES" $MAGENTA
     echo "------------------------"
-    ./password_manager.sh list
+    /winston/scripts/password_manager.sh list
     echo "------------------------"
 }
 
@@ -268,7 +268,7 @@ show_status() {
     screen -ls | grep -E "capture|deauth"
     echo ""
     echo -e "${BOLD}Recent Handshakes:${NC}"
-    ./password_manager.sh list | tail -n 5
+    /winston/scripts/password_manager.sh list | tail -n 5
     echo "------------------------"
 }
 
@@ -528,7 +528,7 @@ while true; do
             ;;
         "crack")
             if [ ! -z "$args" ]; then
-                crack_password "$args"
+                crack_handshake "$args"
             else
                 winston_say $VERBOSITY_NORMAL "USAGE: crack <handshake>" $RED
             fi
@@ -559,3 +559,35 @@ while true; do
             ;;
     esac
 done
+
+# Function to show captured handshakes
+show_handshakes() {
+    winston_say 1 "SHOWING CAPTURED HANDSHAKES..." $BLUE
+    /winston/scripts/password_manager.sh list
+}
+
+# Function to crack a handshake
+crack_handshake() {
+    if [ -z "$1" ]; then
+        winston_say 1 "PLEASE SPECIFY A HANDSHAKE FILE" $RED
+        winston_say 1 "USAGE: crack <handshake_file>" $YELLOW
+        return 1
+    fi
+    
+    winston_say 1 "ATTEMPTING TO CRACK HANDSHAKE..." $BLUE
+    
+    # Get wordlist from user
+    wordlist=$(/winston/scripts/select_wordlist.sh)
+    
+    if [ "$wordlist" = "none" ]; then
+        winston_say 1 "CRACKING ATTEMPT CANCELLED" $YELLOW
+        return 1
+    fi
+    
+    # Start cracking in a screen session
+    screen -dmS crack aircrack-ng -w "$wordlist" "$1"
+    
+    winston_say 1 "CRACKING STARTED IN SCREEN SESSION 'crack'" $GREEN
+    winston_say 1 "TO VIEW PROGRESS: screen -r crack" $YELLOW
+    winston_say 1 "TO DETACH FROM SCREEN: Ctrl+A, D" $YELLOW
+}
